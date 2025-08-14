@@ -8,7 +8,8 @@
     <link rel="stylesheet" href="/css/style.css" />
   </head>
   <body>
-    <% include partials/nav.ejs %>
+    <!-- Navigation bar -->
+    <%- include('partials/nav') %>
     <div class="container">
       <h1>Welcome to Foundations of Algebra</h1>
       <% if (!user) { %>
@@ -27,16 +28,18 @@
       </section>
       <section class="card">
         <h2>Latest Discussions</h2>
-        <% posts.length === 0 ? ( %>
-        <p>No discussions yet. <a href="/forum" class="link-button">Visit the forum</a></p>
-        <% ) : ( posts.forEach(function(post){ %>
-        <div class="post">
-          <h3><%= post.title %></h3>
-          <div class="post-meta">By <%= post.author %> on <%= post.createdAt.toDateString() %></div>
-          <p><%= post.body.substring(0,100) %>...</p>
-        </div>
-        <% }) ) %>
-        <a href="/forum" class="link-button">See all discussions</a>
+        <% if (posts.length === 0) { %>
+          <p>No discussions yet. <a href="/forum" class="link-button">Visit the forum</a></p>
+        <% } else { %>
+          <% posts.forEach(function(post){ %>
+            <div class="post">
+              <h3><%= post.title %></h3>
+              <div class="post-meta">By <%= post.author %> on <%= post.createdAt.toDateString() %></div>
+              <p><%= post.body.substring(0,100) %>...</p>
+            </div>
+          <% }); %>
+          <a href="/forum" class="link-button">See all discussions</a>
+        <% } %>
       </section>
     </div>
   </body>

@@ -8,7 +8,8 @@
     <link rel="stylesheet" href="/css/style.css" />
   </head>
   <body>
-    <% include partials/nav.ejs %>
+    <% /* Include navigation partial */ %>
+    <%- include('partials/nav') %>
     <div class="container">
       <h1>Create New Assignment</h1>
       <form action="/admin/assignments/new" method="post">

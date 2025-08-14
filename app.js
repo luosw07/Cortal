@@ -165,8 +165,22 @@ app.use((req, res) => {
   res.status(404).render('404', { user: req.session.user });
 });
 
-// Start server
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
-});
+// Start server with dynamic port. If the desired port is in use (EADDRINUSE),
+// automatically try the next port. You can also override the default by
+// setting the PORT environment variable when starting the app (e.g. `PORT=4000 npm start`).
+const startServer = (port) => {
+  const server = app.listen(port, () => {
+    console.log(`Server listening on port ${port}`);
+  });
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`Port ${port} is in use, trying port ${port + 1}...`);
+      startServer(port + 1);
+    } else {
+      throw err;
+    }
+  });
+};
+
+const initialPort = parseInt(process.env.PORT, 10) || 3000;
+startServer(initialPort);
