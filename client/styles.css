@@ -1,0 +1,488 @@
+/* Base styles drawing inspiration from Apple's human interface guidelines */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: #f5f5f7;
+  color: #1d1d1f;
+  height: 100%;
+}
+
+header.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  background-color: rgba(255, 255, 255, 0.8);
+  backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+header .brand {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+nav.nav-links button {
+  background: none;
+  border: none;
+  font-size: 0.95rem;
+  margin: 0 0.5rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background-color 0.2s ease;
+}
+
+nav.nav-links button:hover,
+nav.nav-links button.active {
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+.user-info {
+  font-size: 0.9rem;
+  color: #6e6e73;
+}
+
+/* Layout for user info and notifications bell */
+.header-right {
+  display: flex;
+  align-items: center;
+}
+
+/* Notification panel overlay */
+.notification-panel {
+  position: absolute;
+  right: 1rem;
+  top: 3rem;
+  width: 300px;
+  max-height: 400px;
+  overflow-y: auto;
+  background-color: #ffffff;
+  border: 1px solid #e5e5ea;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 0.5rem;
+  z-index: 300;
+}
+.notification-item {
+  padding: 0.5rem;
+  border-bottom: 1px solid #e5e5ea;
+  cursor: pointer;
+}
+.notification-item:last-child {
+  border-bottom: none;
+}
+
+section.page {
+  max-width: 900px;
+  margin: 2rem auto;
+  padding: 1rem;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Form and controls */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.form label {
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.form input,
+.form textarea,
+.form select {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.95rem;
+  border: 1px solid #d1d1d6;
+  border-radius: 8px;
+  background-color: #fff;
+  color: inherit;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.form input:focus,
+.form textarea:focus,
+.form select:focus {
+  border-color: #007aff;
+}
+
+.primary-btn {
+  align-self: flex-start;
+  padding: 0.5rem 1rem;
+  font-size: 0.95rem;
+  background-color: #007aff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 122, 255, 0.3);
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.primary-btn:hover {
+  background-color: #005ecb;
+  box-shadow: 0 3px 6px rgba(0, 122, 255, 0.4);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.list li {
+  padding: 0.75rem;
+  background-color: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  margin-bottom: 0.5rem;
+  position: relative;
+}
+
+.list li h4 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
+}
+
+.list li p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #424245;
+}
+
+/* Assignment card styles */
+.assignment-card {
+  background-color: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.assignment-card h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.1rem;
+}
+
+.assignment-card .meta {
+  font-size: 0.8rem;
+  color: #6e6e73;
+  margin-bottom: 0.5rem;
+}
+
+.assignment-card p.description {
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+  color: #3a3a3c;
+}
+
+.assignment-card .actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.assignment-card .actions input[type="file"] {
+  flex: 1 1 auto;
+  max-width: 200px;
+}
+
+/* Download link for assignment PDF */
+.assignment-card a.pdf-link {
+  font-size: 0.9rem;
+  color: #007aff;
+  text-decoration: none;
+  margin-bottom: 0.5rem;
+  display: inline-block;
+}
+
+/* Admin invitation code setting styles */
+#inviteCodeSetting form {
+  margin-top: 0.5rem;
+}
+
+/* Modal styles for grading */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 200;
+}
+
+.modal-content {
+  background-color: #fff;
+  padding: 1rem;
+  border-radius: 10px;
+  width: 90%;
+  max-width: 1000px;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #6e6e73;
+}
+
+/* PDF preview and annotation */
+.pdf-container {
+  position: relative;
+  width: 100%;
+  height: 70vh;
+  border: 1px solid #e5e5ea;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.pdf-container iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.pdf-annotation-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+}
+
+.grade-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.grade-form textarea {
+  height: 80px;
+}
+
+.resource-list .resource-item,
+.exam-list .exam-item {
+  background-color: #fff;
+  border-radius: 8px;
+  padding: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  margin-bottom: 0.5rem;
+}
+
+.resource-item a {
+  color: #007aff;
+  text-decoration: none;
+}
+
+.exam-item .meta {
+  font-size: 0.8rem;
+  color: #6e6e73;
+}
+
+/* Upload container for assignment submissions. Mimics Apple's file management aesthetic. */
+.upload-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.upload-container input[type="file"] {
+  display: none;
+}
+.upload-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  background-color: #f5f5f7;
+  border: 1px solid #d1d1d6;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #007aff;
+  font-size: 0.9rem;
+  transition: background-color 0.2s ease;
+}
+.upload-label:hover {
+  background-color: #e5e5ea;
+}
+.file-name {
+  font-size: 0.85rem;
+  color: #6e6e73;
+}
+
+/* Detailed section styling for assignment pages and other detailed views */
+.assignment-detail-section {
+  background-color: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+/* Controls for PDF viewer in grading interface */
+.pdf-viewer-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.pdf-viewer-controls button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  background-color: #e5e5ea;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  color: #1d1d1f;
+  transition: background-color 0.2s ease;
+}
+.pdf-viewer-controls button:hover {
+  background-color: #d1d1d6;
+}
+.pdf-viewer-controls .page-info {
+  font-size: 0.8rem;
+  color: #6e6e73;
+  margin-left: 0.5rem;
+}
+
+/* Label to indicate TA/admin authors in discussions */
+.author-label {
+  font-size: 0.75rem;
+  color: #ff3b30;
+  background-color: #ffecec;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  margin-left: 0.35rem;
+}
+
+/* Discussion home panel styling */
+.discussion-home-panel {
+  margin-top: 2rem;
+}
+.discussion-home-panel .thread-card {
+  background-color: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  cursor: pointer;
+}
+.discussion-home-panel .thread-card h4 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
+}
+.discussion-home-panel .thread-card .meta {
+  font-size: 0.8rem;
+  color: #6e6e73;
+}
+
+/* Scores section styles */
+#scores-section .score-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+#scores-section .score-table th,
+#scores-section .score-table td {
+  padding: 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid #e5e5ea;
+}
+#scores-section .score-table th {
+  background-color: #f2f2f7;
+  font-weight: 600;
+}
+#scores-section .score-table tr:hover {
+  background-color: #f9f9fb;
+}
+
+/* Message list styles */
+.message-list {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.message-item {
+  background-color: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  padding: 0.75rem;
+  cursor: pointer;
+}
+.message-item.unread {
+  font-weight: 600;
+}
+.message-item .meta {
+  font-size: 0.8rem;
+  color: #6e6e73;
+  margin-bottom: 0.25rem;
+}
+.message-compose {
+  margin-top: 2rem;
+}
+
+/* Pending students and student management items */
+.pending-student, .student-item {
+  background-color: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.pending-student button, .student-item button {
+  margin-left: 0.5rem;
+}
+
+/* Responsive design */
+@media (max-width: 600px) {
+  nav.nav-links {
+    display: none;
+  }
+  header.navbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .user-info {
+    margin-top: 0.5rem;
+  }
+}

@@ -1,111 +1,107 @@
-# Cortal Course Portal – Foundations of Algebra
+# Foundations of Algebra Course Portal
 
-## Introduction
+This repository contains a dynamic web portal for the **Foundations of Algebra** course.  It is built with an **Express/Node.js** back end and a lightweight vanilla JavaScript front end styled after Apple’s Human Interface Guidelines.  The portal allows instructors to post announcements and assignments, manage resources and exams, moderate discussions, review and grade PDF submissions, and communicate privately with students.  Students can register, browse materials, submit assignments as PDFs, participate in discussion forums and view their scores.  A notification system keeps everyone informed of important events via email and an in‑app bell.
 
-This project is a dynamic course portal for the *Foundations of Algebra* course. It provides an Apple‑style user interface and implements essential functionality for managing course information, assignments, discussions and resources. The portal is built using **Node.js** with the Express framework and uses **EJS** for server‑side rendering.
+## Key Features
 
-## Features
+- **Announcements** – Instructors can publish course announcements.  Emails are sent to registered users and announcements are visible on the home page for guests.
 
-- **Home page** – shows important announcements and latest forum discussions.
-- **Assignment management** – lists assignments with due dates, allows teaching assistants to publish assignments, and lets students upload PDF submissions. Submissions are stored in the `uploads/` folder. (In a production environment this should be replaced by persistent storage.)
-- **PDF upload & placeholder annotation support** – assignments accept PDF submissions; integration with `pdf-lib` is included for future annotation and merging work.
-- **Resources page** – placeholder for downloadable materials with a clean download button layout.
-- **Exams page** – placeholder for exam notifications.
-- **Forum** – simple discussion forum where authenticated users can create threads and view posts.
-- **Authentication** – very basic email login (auto‑register as student) with session handling. Users can log out. For demonstration purposes the first part of the email before `@` is used as a display name. Roles (`student`/`ta`) are stored in memory.
+- **Assignments with Inline Grading** – Each assignment has a dedicated detail page with three panels: (1) a multi‑page PDF viewer powered by `pdf.js`; (2) a submission panel with a polished upload control that previews the student’s PDF; and (3) a grading panel displaying the score, comments and a download link for the merged feedback file.  Teaching assistants annotate directly on top of the PDF and assign grades; the annotations are merged into the PDF using `pdf‑lib`.
 
-The user interface is heavily inspired by Apple’s design: clean navigation bar, soft shadows and rounded cards.
+- **Resource Downloads** – Course notes, problem sets and other files can be uploaded by instructors and downloaded by students.  Files live under the `server/uploads/resources` directory.
 
-## Installation & Development
+- **Exam Notifications** – Upcoming assessments can be added with a title, date/time and description.  They appear on the exams page and notify all students.
 
-### Requirements
+- **Enhanced Registration & Permissions** – Students must register with their name, email, student ID and Chinese name.  Registrations require **administrator approval**; pending students can browse the site but cannot post or submit assignments.  Teaching assistants register via an invitation code configurable in the admin panel.
 
-- Node.js ≥ 16
-- npm
+- **Discussion Forum** – Users can start discussion threads and post comments with Markdown/LaTeX formatting and optional file attachments.  Each thread opens in its own page showing the original post, attachments and chronological comments.  Teaching assistants are labelled with a “TA” badge and can archive or delete threads/comments.  Administrators can also **mute** students by student ID, preventing them from posting or submitting until unmuted.
 
-### Setup
+- **Grade Dashboard** – A dedicated **Scores** page displays the average grade and number of graded submissions for each assignment.  Students can compare their performance to the class average; administrators see the same table for high‑level insight.
 
-```bash
-# clone the repository and install dependencies
-git clone https://github.com/luosw07/Cortal.git
-cd Cortal
-npm install
+- **Private Messaging** – Users can send private messages to any email address.  The **Messages** page lists incoming messages, allows reading and marking them as read, and includes a composer for new messages.  The recipient receives an email and an in‑app notification.
 
-# start the development server
-npm start
+- **Notifications** – Important actions (submissions, grades posted, new announcements, exam notices, new messages) generate both an email and an in‑app notification.  A bell icon with a label shows the number of unread notifications; clicking it reveals the notification panel.
 
-# The application will run on http://localhost:3000
-```
+- **Administration Panel** – All management tasks live on a single page: editing course information, publishing announcements, creating assignments/exams/resources, moderating discussions, reviewing grade statistics, adjusting the TA invitation code, approving or rejecting pending student registrations, and muting/unmuting students.
 
-For live reload during development you can use:
+- **Apple‑Inspired Design** – The front end uses system fonts, light colours, translucent panels and rounded cards to echo Apple’s design language.  The interface scales gracefully from desktop to mobile screens.
 
-```bash
-npm run dev
-```
+## Local Development
 
-This uses `nodemon` to restart the server on file changes.
+1. **Install prerequisites** – Ensure you have [Node.js](https://nodejs.org/) (version 14 or later) and npm installed.
 
-### Directory structure
-
-- `app.js` – main entry point of the Express application.
-- `views/` – EJS templates for pages and partials (navigation bar).
-- `public/` – static assets such as CSS files.
-- `uploads/` – folder where submitted PDFs are stored.
-- `package.json` – project metadata and dependencies.
-
-### Deployment
-
-To deploy on a server, ensure that environment variables such as `PORT` are set appropriately. Install dependencies using `npm install`, then run `npm start`. For production deployments you should replace the in‑memory storage with a proper database, secure session keys, and implement robust authentication and authorization.
-
-## 中文说明
-
-### 项目简介
-
-该项目为《代数学基础》课程的动态网站。整个网站采用苹果风格的界面设计，功能包括：课程通知展示、作业发布与提交、PDF 上传与预留批注支持、资料下载、考试通知、论坛讨论，以及简易的用户登陆与登出功能。代码基于 **Node.js** 的 Express 框架，页面使用 **EJS** 模板渲染。
-
-### 功能概览
-
-- **首页** – 显示重要通知和最新讨论。
-- **作业管理** – 教学助理可以发布作业，学生可以上传 PDF 作业。在当前示例中，提交的文件保存在 `uploads/` 目录。
-- **PDF 上传与批注** – 集成了 `pdf-lib`，为将来的 PDF 合并与批注提供扩展可能。
-- **资料下载页** – 以苹果风格的下载按钮展示可下载的资料（当前为空）。
-- **考试页** – 考试通知的展示页（当前为空）。
-- **讨论区** – 学生用户可以发起讨论并回复。
-- **登陆/登出** – 输入邮箱即可登录；未登录状态作为访客浏览。session 存储在内存中。
-
-### 安装与开发
-
-1. 确保已安装 Node.js（版本 ≥ 16）和 npm。
-2. 克隆仓库并安装依赖：
+2. **Install dependencies**:
 
    ```bash
-   git clone https://github.com/luosw07/Cortal.git
-   cd Cortal
+   cd course-portal
    npm install
    ```
 
-3. 运行开发服务器：
+3. **Start the development server**:
+
+   ```bash
+   npm run dev
+   ```
+
+   The server runs on **http://localhost:3000**.  During development it automatically reloads on back‑end changes via nodemon.  Open this URL in your browser to access the portal.
+
+4. **First‑time registration** – When visiting the portal for the first time you will be prompted to enter your name, email and role.  Students must provide a student ID and Chinese name.  Teaching assistants need a valid invitation code (the default is `TA2025`; administrators can change it).  Student registrations are stored as *pending* until an administrator approves them in the admin panel.
+
+5. **Data storage** – For demonstration purposes, all data lives in in‑memory arrays.  Restarting the server will reset announcements, assignments, submissions, forum posts and registration state.  For persistent storage you would integrate a database (e.g. PostgreSQL) and replace the in‑memory data structures.
+
+## Deployment
+
+To deploy the portal on a server you may follow these general steps:
+
+1. **Prepare the environment** – Install Node.js on your server and clone or copy the `course-portal` directory.  In production you should set environment variables such as `PORT` and credentials for an SMTP server (see below).
+
+2. **Configure email** – The current implementation uses Nodemailer’s *stream* transport, which writes outgoing emails to the console.  In a real deployment you should configure an SMTP transport:
+
+   ```js
+   const transporter = nodemailer.createTransport({
+     host: 'smtp.example.com',
+     port: 587,
+     secure: false,
+     auth: {
+       user: process.env.SMTP_USER,
+       pass: process.env.SMTP_PASS,
+     },
+   });
+   ```
+
+   Store your SMTP credentials in environment variables and never commit them to source control.
+
+3. **Install dependencies**:
+
+   ```bash
+   cd course-portal
+   npm install --production
+   ```
+
+4. **Run the server** – Use the built‑in start script to launch the app:
 
    ```bash
    npm start
    ```
 
-   默认在 `http://localhost:3000` 提供服务。如果需要在开发过程中自动重载服务器，可以执行 `npm run dev`。
+   Or run `node server/index.js` directly.  The application will listen on the port defined by `PORT` (default 3000).
 
-### 部署
+5. **Reverse proxy and SSL** – In a production environment you should run the Node.js process behind a reverse proxy like Nginx or Apache, handle HTTPS termination, and proxy requests to the Node server.  Refer to your proxy’s documentation for configuration details.
 
-在服务器部署时，请配置 `PORT` 等环境变量，运行 `npm install` 安装依赖后，执行 `npm start` 启动服务。生产环境下应替换内存存储为数据库，强化用户认证与权限控制，并将 session key 存入安全配置。
+6. **Persistence** – To retain data across restarts you should integrate a database.  Replace the in‑memory arrays in `server/index.js` with database queries and updates.  You may also wish to store uploaded files in a cloud storage service.
 
-## Future Work & Suggestions
+## Additional Feature Ideas
 
-This skeleton covers the basic structure requested in the project instructions. To fully meet all requirements, further development is needed:
+This portal implements many core features of modern learning management systems, but there is room to grow.  Below are some suggestions inspired by platforms like Canvas and Gradescope.  If you would like to add any of these, please let me know:
 
-1. **Enhanced authentication & authorization** – implement proper user roles (student, TA, admin) with persistent storage, registration review, and moderation features.
-2. **Assignment grading & feedback** – integrate PDF annotation (via pdf.js or pdf-lib) to allow TAs to mark up submissions and provide downloadable feedback files, including multi‑page preview with zoom and drawing tools.
-3. **Forum moderation** – provide admin/TA tools to pin, delete, archive or mute users; upload attachments; implement private messaging and notifications.
-4. **Notification system** – centralised notification hub (bell icon) that aggregates email and site messages; show counts and allow clearing notifications.
-5. **Resource management** – allow uploading and organising of lecture notes, slides and other materials; provide secure downloads.
-6. **Statistics dashboards** – build grading scales for students to view their performance over time and analytics dashboards for teaching staff.
-7. **UI polish** – continue refining the UI to more closely mirror Apple’s design aesthetic; modularise pages into distinct views and add interactive elements where appropriate.
+- **Rubrics & Structured Grading** – Define detailed scoring criteria for each assignment so that graders apply consistent standards and students understand how their work is evaluated.
+- **Group Assignments & Peer Review** – Allow students to submit work in teams and review each other’s submissions, similar to Canvas’s group and peer review tools.
+- **Calendar Integration** – Provide calendar feeds for assignment deadlines and exam dates that students can subscribe to in Outlook or Google Calendar.
+- **Analytics Dashboard** – Generate charts showing grade distributions, submission timelines and forum engagement to help instructors monitor course progress.
+- **Export & Backup** – Offer administrators the ability to export grades, forum posts and resources as CSV or PDF for archiving.
 
-If you have additional feature suggestions, feel free to file an issue or discuss it in the forum. The project is open to improvement.
+Feel free to suggest other improvements!  This project is intentionally modular so new pages, modules and APIs can be added with minimal disruption.
+
+## License
+
+This project is released under the MIT License.
