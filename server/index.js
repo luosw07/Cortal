@@ -45,6 +45,9 @@ const users = [];
 // Password reset requests. Each entry: { email, approved: boolean }
 const resetRequests = [];
 
+const app = express();
+const PORT = process.env.PORT || 3000;
+
 // Student registration and management
 // Pending student registrations awaiting admin approval
 const pendingStudents = [];
@@ -306,8 +309,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+
 
 // Load persisted data on startup
 loadData();
