@@ -22,6 +22,14 @@ app.use(
   })
 );
 
+// Make the logged-in user (if any) available to all templates via res.locals.
+// This avoids ReferenceError in partials when `user` is undefined. If no user is
+// logged in, `res.locals.user` will be null.
+app.use((req, res, next) => {
+  res.locals.user = req.session && req.session.user ? req.session.user : null;
+  next();
+});
+
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
 
