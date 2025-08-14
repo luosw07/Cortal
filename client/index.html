@@ -25,6 +25,7 @@
         <button data-section="exams">Exams</button>
         <button data-section="scores">Scores</button>
         <button data-section="messages">Messages</button>
+        <button data-section="notifications">Notifications</button>
         <button data-section="admin" id="adminNav" style="display: none">Admin</button>
       </nav>
       <!-- Notifications bell and user info -->
@@ -42,32 +43,47 @@
     <div id="notificationPanel" class="notification-panel hidden"></div>
 
     <!-- Login Modal / Form (hidden until invoked) -->
+    <!-- Login Section -->
     <section id="login-section" class="page hidden">
-      <h2>Login / Register</h2>
+      <h2>Login</h2>
       <form id="loginForm" class="form">
-        <label for="nameInput">Name</label>
-        <input type="text" id="nameInput" required />
-        <label for="emailInput">Email</label>
-        <input type="email" id="emailInput" required />
-        <label for="roleSelect">Role</label>
-        <select id="roleSelect">
+        <label for="loginEmail">Email</label>
+        <input type="email" id="loginEmail" required />
+        <label for="loginPassword">Password</label>
+        <input type="password" id="loginPassword" required />
+        <button type="submit" class="btn-blue">Login</button>
+      </form>
+      <p style="margin-top:0.5rem; font-size:0.85rem;">Don’t have an account? <a href="#" id="showRegisterLink">Register here</a></p>
+    </section>
+
+    <!-- Registration Section -->
+    <section id="register-section" class="page hidden">
+      <h2>Register</h2>
+      <form id="registerForm" class="form">
+        <label for="regName">Name</label>
+        <input type="text" id="regName" required />
+        <label for="regEmail">Email</label>
+        <input type="email" id="regEmail" required />
+        <label for="regPassword">Password</label>
+        <input type="password" id="regPassword" required />
+        <label for="regRole">Role</label>
+        <select id="regRole">
           <option value="student">Student</option>
           <option value="admin">Admin/TA</option>
         </select>
-        <!-- Student specific fields -->
-        <div id="studentFields">
-          <label for="studentIdInput">Student ID</label>
-          <input type="text" id="studentIdInput" />
-          <label for="studentNameZhInput">Chinese Name (中文姓名)</label>
-          <input type="text" id="studentNameZhInput" />
+        <div id="regStudentFields">
+          <label for="regStudentId">Student ID</label>
+          <input type="text" id="regStudentId" />
+          <label for="regStudentNameZh">Chinese Name (中文姓名)</label>
+          <input type="text" id="regStudentNameZh" />
         </div>
-        <!-- Admin invitation code field -->
-        <div id="adminFields" class="hidden">
-          <label for="inviteCodeInput">TA Invitation Code</label>
-          <input type="text" id="inviteCodeInput" />
+        <div id="regTaField" class="hidden">
+          <label for="regInvite">TA Invitation Code</label>
+          <input type="text" id="regInvite" />
         </div>
-        <button type="submit" class="primary-btn">Login / Register</button>
+        <button type="submit" class="btn-blue">Create Account</button>
       </form>
+      <p style="margin-top:0.5rem; font-size:0.85rem;">Already have an account? <a href="#" id="showLoginLink">Back to Login</a></p>
     </section>
 
 
@@ -90,6 +106,12 @@
             <button type="submit" class="primary-btn">Post Announcement</button>
           </form>
         </div>
+      </div>
+
+      <!-- Recent Assignments Section -->
+      <div class="recent-assignments-panel">
+        <h3>Recent Assignments</h3>
+        <div id="homeAssignmentsList" class="assignment-home-list"></div>
       </div>
 
       <!-- Recent Discussions on Home Page -->
@@ -124,6 +146,11 @@
       <div class="modal-content" id="gradeModalContent">
         <!-- dynamic content inserted here -->
       </div>
+    </div>
+
+    <!-- PDF Preview Modal (for previewing any PDF with pdf.js) -->
+    <div id="pdfModal" class="modal hidden">
+      <div class="modal-content" id="pdfModalContent"></div>
     </div>
 
     <!-- Resources Section -->
@@ -163,102 +190,100 @@
     <!-- Admin Section (placeholder for extended controls) -->
     <section id="admin-section" class="page hidden">
       <h2>Administration</h2>
-      <p>Use the navigation above to manage announcements, assignments, resources and exams. Only users with a valid TA invitation code can access these controls.</p>
+      <div class="admin-nav">
+        <button data-admin-section="info">Course Info</button>
+        <button data-admin-section="announcements">Announcements</button>
+        <button data-admin-section="assignments">Assignments</button>
+        <button data-admin-section="resources">Resources</button>
+        <button data-admin-section="exams">Exams</button>
+        <button data-admin-section="discussions">Discussions</button>
+        <button data-admin-section="students">Students</button>
+      </div>
+      <!-- TA Invitation Code Setting (always visible for admins) -->
       <div id="inviteCodeSetting" style="margin-top:1rem;">
         <h3>TA Invitation Code</h3>
         <p>Current code: <span id="currentTaCode"></span></p>
         <form id="inviteCodeForm" class="form" style="max-width:300px;">
           <label for="taCodeInput">Set New Code</label>
           <input type="text" id="taCodeInput" required />
-          <button type="submit" class="primary-btn">Update Code</button>
+          <button type="submit" class="btn-blue">Update Code</button>
         </form>
       </div>
-
-      <!-- Consolidated management forms -->
-      <div id="adminForms" style="margin-top:2rem; display:flex; flex-direction:column; gap:2rem;">
-        <!-- Course information management -->
-        <div class="admin-panel">
-          <h3>Edit Course Information</h3>
-          <form id="courseInfoForm" class="form">
-            <label for="courseInfoTextarea">Course Info (Markdown &amp; LaTeX allowed)</label>
-            <textarea id="courseInfoTextarea" rows="5" required></textarea>
-            <button type="submit" class="primary-btn">Update Information</button>
-          </form>
-        </div>
-        <!-- Announcement management -->
-        <div class="admin-panel">
-          <h3>Post Announcement</h3>
-          <form id="adminAnnouncementForm" class="form">
-            <label for="adminAnnouncementTitle">Title</label>
-            <input type="text" id="adminAnnouncementTitle" required />
-            <label for="adminAnnouncementContent">Content (Markdown &amp; LaTeX)</label>
-            <textarea id="adminAnnouncementContent" rows="3" required></textarea>
-            <button type="submit" class="primary-btn">Publish Announcement</button>
-          </form>
-        </div>
-        <!-- Assignment management -->
-        <div class="admin-panel">
-          <h3>Create Assignment</h3>
-          <form id="adminAssignmentForm" class="form" enctype="multipart/form-data">
-            <label for="adminAssignmentTitle">Title</label>
-            <input type="text" id="adminAssignmentTitle" required />
-            <label for="adminAssignmentDescription">Description (Markdown &amp; LaTeX)</label>
-            <textarea id="adminAssignmentDescription" rows="3" placeholder="Optional description in Markdown..."></textarea>
-            <label for="adminAssignmentFile">Assignment PDF</label>
-            <input type="file" id="adminAssignmentFile" accept="application/pdf" required />
-            <label for="adminAssignmentDue">Due Date</label>
-            <input type="datetime-local" id="adminAssignmentDue" required />
-            <button type="submit" class="primary-btn">Create Assignment</button>
-          </form>
-        </div>
-        <!-- Resource management -->
-        <div class="admin-panel">
-          <h3>Upload Resource</h3>
-          <form id="adminResourceForm" class="form" enctype="multipart/form-data">
-            <label for="adminResourceTitle">Title</label>
-            <input type="text" id="adminResourceTitle" required />
-            <label for="adminResourceFile">File (PDF or other)</label>
-            <input type="file" id="adminResourceFile" accept="application/pdf,application/zip,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required />
-            <button type="submit" class="primary-btn">Upload Resource</button>
-          </form>
-        </div>
-        <!-- Exam management -->
-        <div class="admin-panel">
-          <h3>Create Exam Notification</h3>
-          <form id="adminExamForm" class="form">
-            <label for="adminExamTitle">Title</label>
-            <input type="text" id="adminExamTitle" required />
-            <label for="adminExamDate">Date</label>
-            <input type="datetime-local" id="adminExamDate" required />
-            <label for="adminExamDescription">Description</label>
-            <textarea id="adminExamDescription" rows="3" required></textarea>
-            <button type="submit" class="primary-btn">Create Exam</button>
-          </form>
-        </div>
-        <!-- Discussion moderation -->
-        <div class="admin-panel">
-          <h3>Manage Discussions</h3>
-          <div id="adminThreadList"></div>
-        </div>
-
-        <!-- Pending student registrations -->
-        <div class="admin-panel">
-          <h3>Pending Student Registrations</h3>
-          <div id="pendingStudentsList"></div>
-        </div>
-
-        <!-- Student management (mute/unmute) -->
-        <div class="admin-panel">
-          <h3>Student Management</h3>
-          <div id="studentsList"></div>
-          <form id="muteStudentForm" class="form" style="margin-top:1rem; max-width:300px;">
-            <label for="muteStudentId">Student ID</label>
-            <input type="text" id="muteStudentId" placeholder="Enter student ID" />
-            <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
-              <button id="muteBtn" type="button" class="secondary-btn">Mute</button>
-              <button id="unmuteBtn" type="button" class="secondary-btn">Unmute</button>
-            </div>
-          </form>
+      <!-- Admin subsections (hidden by default) -->
+      <div id="admin-info" class="admin-subsection hidden">
+        <h3>Edit Course Information</h3>
+        <form id="courseInfoForm" class="form">
+          <label for="courseInfoTextarea">Course Info (Markdown &amp; LaTeX allowed)</label>
+          <textarea id="courseInfoTextarea" rows="5" required></textarea>
+          <button type="submit" class="btn-blue">Update Information</button>
+        </form>
+      </div>
+      <div id="admin-announcements" class="admin-subsection hidden">
+        <h3>Post Announcement</h3>
+        <form id="adminAnnouncementForm" class="form">
+          <label for="adminAnnouncementTitle">Title</label>
+          <input type="text" id="adminAnnouncementTitle" required />
+          <label for="adminAnnouncementContent">Content (Markdown &amp; LaTeX)</label>
+          <textarea id="adminAnnouncementContent" rows="3" required></textarea>
+          <button type="submit" class="btn-blue">Publish Announcement</button>
+        </form>
+      </div>
+      <div id="admin-assignments" class="admin-subsection hidden">
+        <h3>Create Assignment</h3>
+        <form id="adminAssignmentForm" class="form" enctype="multipart/form-data">
+          <label for="adminAssignmentTitle">Title</label>
+          <input type="text" id="adminAssignmentTitle" required />
+          <label for="adminAssignmentDescription">Description (Markdown &amp; LaTeX)</label>
+          <textarea id="adminAssignmentDescription" rows="3" placeholder="Optional description in Markdown..."></textarea>
+          <label for="adminAssignmentFile">Assignment PDF</label>
+          <input type="file" id="adminAssignmentFile" accept="application/pdf" required />
+          <label for="adminAssignmentDue">Due Date</label>
+          <input type="datetime-local" id="adminAssignmentDue" required />
+          <button type="submit" class="btn-blue">Create Assignment</button>
+        </form>
+      </div>
+      <div id="admin-resources" class="admin-subsection hidden">
+        <h3>Upload Resource</h3>
+        <form id="adminResourceForm" class="form" enctype="multipart/form-data">
+          <label for="adminResourceTitle">Title</label>
+          <input type="text" id="adminResourceTitle" required />
+          <label for="adminResourceFile">File (PDF or other)</label>
+          <input type="file" id="adminResourceFile" accept="application/pdf,application/zip,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required />
+          <button type="submit" class="btn-blue">Upload Resource</button>
+        </form>
+      </div>
+      <div id="admin-exams" class="admin-subsection hidden">
+        <h3>Create Exam Notification</h3>
+        <form id="adminExamForm" class="form">
+          <label for="adminExamTitle">Title</label>
+          <input type="text" id="adminExamTitle" required />
+          <label for="adminExamDate">Date</label>
+          <input type="datetime-local" id="adminExamDate" required />
+          <label for="adminExamDescription">Description</label>
+          <textarea id="adminExamDescription" rows="3" required></textarea>
+          <button type="submit" class="btn-blue">Create Exam</button>
+        </form>
+      </div>
+      <div id="admin-discussions" class="admin-subsection hidden">
+        <h3>Manage Discussions</h3>
+        <div id="adminThreadList"></div>
+      </div>
+      <div id="admin-students" class="admin-subsection hidden">
+        <h3>Pending Registrations</h3>
+        <div id="pendingStudentsList"></div>
+        <h3 style="margin-top:1.5rem;">Student Management</h3>
+        <div id="studentsList"></div>
+        <form id="muteStudentForm" class="form" style="margin-top:1rem; max-width:300px;">
+          <label for="muteStudentId">Student ID</label>
+          <input type="text" id="muteStudentId" placeholder="Enter student ID" />
+          <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+            <button id="muteBtn" type="button" class="btn-yellow">Mute</button>
+            <button id="unmuteBtn" type="button" class="btn-green">Unmute</button>
+          </div>
+        </form>
+        <!-- Export grades button -->
+        <div style="margin-top:1.5rem;">
+          <button id="exportGradesBtn" type="button" class="btn-blue">Export Grades (CSV)</button>
         </div>
       </div>
     </section>
@@ -302,21 +327,33 @@
       <div id="scoresContent"></div>
     </section>
 
-    <!-- Messages Section: inbox and new message composer -->
+    <!-- Notifications Section: list all notifications with details -->
+    <section id="notifications-section" class="page hidden">
+      <h2>Notifications</h2>
+      <div id="notificationsList"></div>
+    </section>
+
+    <!-- Messages Section: chat style interface -->
     <section id="messages-section" class="page hidden">
       <h2>Private Messages</h2>
-      <div id="messageList" class="message-list"></div>
-      <div id="newMessageContainer" class="message-compose">
-        <h3>Send a New Message</h3>
-        <form id="newMessageForm" class="form">
-          <label for="messageRecipient">Recipient Email</label>
-          <input type="email" id="messageRecipient" required />
-          <label for="messageSubject">Subject</label>
-          <input type="text" id="messageSubject" required />
-          <label for="messageContent">Message</label>
-          <textarea id="messageContent" rows="4" required></textarea>
-          <button type="submit" class="primary-btn">Send Message</button>
-        </form>
+      <div class="chat-container">
+        <div class="chat-sidebar">
+          <h4>Conversations</h4>
+          <div id="conversationList"></div>
+          <form id="startConversationForm" class="form" style="margin-top:1rem;">
+            <label for="newConversationEmail">Start new chat</label>
+            <input type="email" id="newConversationEmail" placeholder="Enter email..." required />
+            <button type="submit" class="btn-blue">Start</button>
+          </form>
+        </div>
+        <div class="chat-main">
+          <div id="chatHeader" class="chat-header"></div>
+          <div id="chatMessages" class="chat-messages"></div>
+          <form id="chatInputForm" class="chat-input form">
+            <textarea id="chatInput" rows="2" placeholder="Type a message..."></textarea>
+            <button type="submit" class="btn-blue">Send</button>
+          </form>
+        </div>
       </div>
     </section>
 

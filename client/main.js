@@ -12,15 +12,44 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => document.querySelectorAll(selector);
 
-// In‑memory user session (persisted in localStorage); if null, user is guest
+// In‑memory user session (persisted in localStorage); if null, user is guest.
 let currentUser = null;
+
+// JWT token for authenticated requests
+let authToken = null;
+
+// Track the current chat conversation partner email for private messaging
+let currentConversation = null;
+
+/**
+ * Helper to construct Authorization headers when a JWT token is present. Use
+ * this in conjunction with fetchAuth() when calling protected API routes.
+ */
+function authHeaders() {
+  const token = authToken || localStorage.getItem('courseToken');
+  return token ? { Authorization: 'Bearer ' + token } : {};
+}
+
+/**
+ * Wrapper around fetch() which automatically merges Authorization header if
+ * a token is available. Accepts the same parameters as fetch().
+ *
+ * @param {string} url
+ * @param {object} options
+ */
+function fetchAuth(url, options = {}) {
+  const headers = Object.assign({}, options.headers || {}, authHeaders());
+  return fetch(url, Object.assign({}, options, { headers }));
+}
 
 // Setup event listeners once DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-  // Restore user from localStorage if available
-  const stored = localStorage.getItem('courseUser');
-  if (stored) {
-    currentUser = JSON.parse(stored);
+  // Restore user and token from localStorage if available
+  const storedUser = localStorage.getItem('courseUser');
+  const storedToken = localStorage.getItem('courseToken');
+  if (storedUser && storedToken) {
+    currentUser = JSON.parse(storedUser);
+    authToken = storedToken;
     initForLoggedInUser();
   } else {
     initForGuest();
@@ -30,10 +59,18 @@ document.addEventListener('DOMContentLoaded', () => {
   $$('.nav-links button').forEach((btn) => {
     btn.addEventListener('click', () => {
       const section = btn.dataset.section;
+      // Always hide the notifications dropdown when switching sections
+      const panel = document.getElementById('notificationPanel');
+      if (panel) panel.classList.add('hidden');
       showSection(section + '-section');
       setActiveNav(btn);
       // Load additional content when navigating to specific sections
-      if (section === 'scores') {
+      if (section === 'home') {
+        // Refresh home panels when navigating back
+        loadAnnouncements();
+        loadHomeAssignments();
+        loadHomeThreads();
+      } else if (section === 'scores') {
         loadScores();
       } else if (section === 'messages') {
         loadMessages();
@@ -41,6 +78,8 @@ document.addEventListener('DOMContentLoaded', () => {
         loadAdminThreads();
         loadPendingStudents();
         loadStudentList();
+      } else if (section === 'notifications') {
+        loadNotificationDetails();
       }
     });
   });
@@ -80,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (fileInput && fileInput.files.length) {
         formData.append('file', fileInput.files[0]);
       }
-      const resp = await fetch('/api/forum', {
+      const resp = await fetchAuth('/api/forum', {
         method: 'POST',
         body: formData,
       });
@@ -125,7 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
           subject,
           content,
         };
-        const resp = await fetch('/api/messages', {
+        const resp = await fetchAuth('/api/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -145,6 +184,68 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Chat: start new conversation
+  const startConversationForm = document.getElementById('startConversationForm');
+  if (startConversationForm) {
+    startConversationForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!currentUser) {
+        alert('Please login to start a conversation.');
+        return;
+      }
+      const email = document.getElementById('newConversationEmail').value.trim();
+      if (!email) return;
+      currentConversation = email;
+      document.getElementById('newConversationEmail').value = '';
+      // Render a blank conversation; messages will load when refreshed
+      renderConversation(email, []);
+    });
+  }
+
+  // Chat: send message in conversation
+  const chatInputForm = document.getElementById('chatInputForm');
+  if (chatInputForm) {
+    chatInputForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!currentUser) {
+        alert('Please login to send a message.');
+        return;
+      }
+      if (!currentConversation) {
+        alert('Please select or start a conversation.');
+        return;
+      }
+      const textarea = document.getElementById('chatInput');
+      const content = textarea.value.trim();
+      if (!content) return;
+      try {
+        const body = {
+          fromName: currentUser.name,
+          fromEmail: currentUser.email,
+          toEmail: currentConversation,
+          subject: '',
+          content,
+        };
+        const resp = await fetchAuth('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (resp.ok) {
+          textarea.value = '';
+          await loadMessages();
+          // After reload, conversation will re-render with new message
+        } else {
+          const msg = await resp.json();
+          alert(msg.error || 'Failed to send message');
+        }
+      } catch (err) {
+        console.error('Send message error', err);
+        alert('Error sending message');
+      }
+    });
+  }
+
   // Student mute/unmute actions (admin)
   const muteBtn = document.getElementById('muteBtn');
   const unmuteBtn = document.getElementById('unmuteBtn');
@@ -157,7 +258,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       if (!confirm('Mute this student? They will be unable to post or submit.')) return;
-      await fetch(`/api/students/${encodeURIComponent(sid)}/mute`, { method: 'POST' });
+      await fetchAuth(`/api/students/${encodeURIComponent(sid)}/mute`, { method: 'POST' });
       alert('Student muted');
       loadStudentList();
     });
@@ -171,105 +272,43 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       if (!confirm('Unmute this student?')) return;
-      await fetch(`/api/students/${encodeURIComponent(sid)}/unmute`, { method: 'POST' });
+      await fetchAuth(`/api/students/${encodeURIComponent(sid)}/unmute`, { method: 'POST' });
       alert('Student unmuted');
       loadStudentList();
     });
   }
 
-  // Login form submission
-  $('#loginForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const name = $('#nameInput').value.trim();
-    const email = $('#emailInput').value.trim();
-    const role = $('#roleSelect').value;
-    if (!name || !email) {
-      alert('Please enter your name and email.');
-      return;
-    }
-    if (role === 'student') {
-      const studentId = $('#studentIdInput').value.trim();
-      const studentNameZh = $('#studentNameZhInput').value.trim();
-      if (!studentId || !studentNameZh) {
-        alert('Please enter your student ID and Chinese name.');
-        return;
-      }
-      try {
-        // Check current status on server
-        const checkRes = await fetch(`/api/checkStudent?email=${encodeURIComponent(email)}`);
-        const statusData = await checkRes.json();
-        if (statusData.status === 'approved') {
-          // Already approved; proceed to login
-          currentUser = { name, email, role: 'student', studentId, studentNameZh, approved: true };
-          alert('Welcome back! Your registration is approved.');
-        } else if (statusData.status === 'pending') {
-          // Registration pending; treat as pending user
-          currentUser = { name, email, role: 'pendingStudent', studentId, studentNameZh, approved: false };
-          alert('Your registration is still pending approval. You can browse the site but cannot submit or post until approved.');
-        } else {
-          // Not found; register new student
-          const resp = await fetch('/api/registerStudent', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, email, studentId, studentNameZh }),
-          });
-          if (resp.ok) {
-            currentUser = { name, email, role: 'pendingStudent', studentId, studentNameZh, approved: false };
-            alert('Registration submitted. Awaiting administrator approval.');
-          } else {
-            const msg = await resp.json();
-            alert(msg.error || 'Registration failed');
-            return;
-          }
-        }
-      } catch (err) {
-        console.error('Registration error', err);
-        alert('An error occurred during registration. Please try again later.');
-        return;
-      }
-    } else {
-      // Admin/TA login
-      const invite = $('#inviteCodeInput').value.trim();
-      const storedCode = localStorage.getItem('taInvitationCode') || 'TA2025';
-      if (invite !== storedCode) {
-        alert('Invalid invitation code for TA registration.');
-        return;
-      }
-      currentUser = { name, email, role: 'admin', approved: true };
-    }
-    // Persist session
-    localStorage.setItem('courseUser', JSON.stringify(currentUser));
-    // Hide login modal and initialise user
-    $('#login-section').classList.add('hidden');
-    initForLoggedInUser();
-  });
-
-  // Role select change: toggle student/admin fields
-  $('#roleSelect').addEventListener('change', () => {
-    const role = $('#roleSelect').value;
-    if (role === 'student') {
-      $('#studentFields').style.display = 'block';
-      $('#adminFields').classList.add('hidden');
-    } else {
-      $('#studentFields').style.display = 'none';
-      $('#adminFields').classList.remove('hidden');
-    }
-  });
 
   // TA invitation code settings (admin panel)
   const inviteForm = document.getElementById('inviteCodeForm');
   if (inviteForm) {
-    inviteForm.addEventListener('submit', (e) => {
+    inviteForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const newCode = document.getElementById('taCodeInput').value.trim();
       if (!newCode) {
         alert('Please enter a code');
         return;
       }
-      localStorage.setItem('taInvitationCode', newCode);
-      document.getElementById('currentTaCode').textContent = newCode;
-      document.getElementById('taCodeInput').value = '';
-      alert('TA invitation code updated');
+      try {
+        const resp = await fetchAuth('/api/taCode', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: newCode }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          alert(data.error || 'Failed to update TA code');
+          return;
+        }
+        // Also update locally for convenience
+        localStorage.setItem('taInvitationCode', newCode);
+        document.getElementById('currentTaCode').textContent = newCode;
+        document.getElementById('taCodeInput').value = '';
+        alert('TA invitation code updated');
+      } catch (err) {
+        console.error('Update TA code error', err);
+        alert('An error occurred while updating TA code');
+      }
     });
   }
 
@@ -279,7 +318,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const title = $('#adminAnnouncementTitle').value.trim();
     const content = $('#adminAnnouncementContent').value.trim();
     if (!title || !content) return;
-    await fetch('/api/announcements', {
+    await fetchAuth('/api/announcements', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, content }),
@@ -304,7 +343,7 @@ document.addEventListener('DOMContentLoaded', () => {
     formData.append('description', description);
     formData.append('dueDate', dueDate);
     formData.append('file', fileInput.files[0]);
-    await fetch('/api/assignments', {
+    await fetchAuth('/api/assignments', {
       method: 'POST',
       body: formData,
     });
@@ -323,7 +362,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const formData = new FormData();
     formData.append('title', title);
     formData.append('file', fileInput.files[0]);
-    await fetch('/api/resources', {
+    await fetchAuth('/api/resources', {
       method: 'POST',
       body: formData,
     });
@@ -338,7 +377,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const date = $('#adminExamDate').value;
     const description = $('#adminExamDescription').value.trim();
     if (!title || !date || !description) return;
-    await fetch('/api/exams', {
+    await fetchAuth('/api/exams', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, date, description }),
@@ -354,7 +393,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('courseInfoForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const info = document.getElementById('courseInfoTextarea').value;
-    await fetch('/api/courseInfo', {
+    await fetchAuth('/api/courseInfo', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ info }),
@@ -362,11 +401,182 @@ document.addEventListener('DOMContentLoaded', () => {
     alert('Course information updated');
     loadCourseInfo();
   });
+
+  // Export grades (CSV) button for admins. Download a CSV of all submissions.
+  const exportGradesBtn = document.getElementById('exportGradesBtn');
+  if (exportGradesBtn) {
+    exportGradesBtn.addEventListener('click', async () => {
+      try {
+        const resp = await fetchAuth('/api/export/grades');
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(err.error || 'Failed to export grades');
+          return;
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'grades.csv';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('Export grades error', err);
+        alert('Failed to export grades');
+      }
+    });
+  }
+
+  // Toggle between login and register views for guests
+  const showRegisterLink = document.getElementById('showRegisterLink');
+  if (showRegisterLink) {
+    showRegisterLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.getElementById('login-section').classList.add('hidden');
+      document.getElementById('register-section').classList.remove('hidden');
+    });
+  }
+  const showLoginLink = document.getElementById('showLoginLink');
+  if (showLoginLink) {
+    showLoginLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.getElementById('register-section').classList.add('hidden');
+      document.getElementById('login-section').classList.remove('hidden');
+    });
+  }
+
+  // Registration form submission
+  const registerForm = document.getElementById('registerForm');
+  if (registerForm) {
+    registerForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('regName').value.trim();
+      const email = document.getElementById('regEmail').value.trim();
+      const password = document.getElementById('regPassword').value;
+      const role = document.getElementById('regRole').value;
+      const studentId = document.getElementById('regStudentId').value.trim();
+      const studentNameZh = document.getElementById('regStudentNameZh').value.trim();
+      const inviteCode = document.getElementById('regInvite').value.trim();
+      if (!name || !email || !password) {
+        alert('Please complete all required fields');
+        return;
+      }
+      if (role === 'student' && (!studentId || !studentNameZh)) {
+        alert('Please provide your student ID and Chinese name');
+        return;
+      }
+      try {
+        const body = { name, email, password, role, studentId, studentNameZh, inviteCode };
+        const resp = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          alert(data.error || 'Registration failed');
+          return;
+        }
+        authToken = data.token;
+        currentUser = data.user;
+        localStorage.setItem('courseToken', authToken);
+        localStorage.setItem('courseUser', JSON.stringify(currentUser));
+        alert('Registration successful');
+        initForLoggedInUser();
+      } catch (err) {
+        console.error('Registration error', err);
+        alert('An error occurred during registration');
+      }
+    });
+  }
+
+  // Login form submission
+  const loginForm = document.getElementById('loginForm');
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('loginEmail').value.trim();
+      const password = document.getElementById('loginPassword').value;
+      if (!email || !password) {
+        alert('Please enter your email and password');
+        return;
+      }
+      try {
+        const resp = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          alert(data.error || 'Login failed');
+          return;
+        }
+        authToken = data.token;
+        currentUser = data.user;
+        localStorage.setItem('courseToken', authToken);
+        localStorage.setItem('courseUser', JSON.stringify(currentUser));
+        initForLoggedInUser();
+      } catch (err) {
+        console.error('Login error', err);
+        alert('An error occurred during login');
+      }
+    });
+  }
+
+  // Admin navigation: toggle between subsections when admin clicks a tab
+  const adminNavButtons = document.querySelectorAll('.admin-nav button');
+  if (adminNavButtons.length) {
+    adminNavButtons.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        // Highlight active
+        adminNavButtons.forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        const target = btn.getAttribute('data-admin-section');
+        // Hide all admin subsections
+        document.querySelectorAll('.admin-subsection').forEach((sec) => sec.classList.add('hidden'));
+        // Show selected subsection
+        const activeSec = document.getElementById('admin-' + target);
+        if (activeSec) {
+          activeSec.classList.remove('hidden');
+        }
+      });
+    });
+    // Set initial active section to info
+    const defaultBtn = document.querySelector('.admin-nav button[data-admin-section="info"]');
+    if (defaultBtn) {
+      defaultBtn.classList.add('active');
+      document.querySelectorAll('.admin-subsection').forEach((sec) => sec.classList.add('hidden'));
+      const initialSec = document.getElementById('admin-info');
+      if (initialSec) initialSec.classList.remove('hidden');
+    }
+  }
+
+  // Register role change: toggle student/admin fields
+  const regRoleSelect = document.getElementById('regRole');
+  if (regRoleSelect) {
+    regRoleSelect.addEventListener('change', () => {
+      const role = regRoleSelect.value;
+      if (role === 'student') {
+        document.getElementById('regStudentFields').style.display = 'block';
+        document.getElementById('regTaField').classList.add('hidden');
+      } else {
+        document.getElementById('regStudentFields').style.display = 'none';
+        document.getElementById('regTaField').classList.remove('hidden');
+      }
+    });
+  }
 });
 
 function initForLoggedInUser() {
-  // Hide login modal
-  $('#login-section').classList.add('hidden');
+  // Hide login and register sections
+  const loginSec = document.getElementById('login-section');
+  const registerSec = document.getElementById('register-section');
+  if (loginSec) loginSec.classList.add('hidden');
+  if (registerSec) registerSec.classList.add('hidden');
   // Display navigation
   $('header.navbar').style.display = 'flex';
   // Configure user info with logout link
@@ -383,6 +593,8 @@ function initForLoggedInUser() {
   document.getElementById('logoutLink').addEventListener('click', (e) => {
     e.preventDefault();
     localStorage.removeItem('courseUser');
+    localStorage.removeItem('courseToken');
+    authToken = null;
     currentUser = null;
     initForGuest();
   });
@@ -416,54 +628,58 @@ function initForLoggedInUser() {
   setActiveNav(document.querySelector('nav.nav-links button[data-section="home"]'));
   loadAnnouncements();
   loadAssignments();
+  loadHomeAssignments();
   loadResources();
   loadExams();
   loadDiscussions();
   loadCourseInfo();
   loadHomeThreads();
+  loadHomeAssignments();
   loadNotifications();
   loadScores();
   loadMessages();
 }
 
 function initForGuest() {
-  // Hide login modal initially
-  $('#login-section').classList.add('hidden');
+  // Hide login and register sections initially
+  const loginSec = document.getElementById('login-section');
+  const registerSec = document.getElementById('register-section');
+  if (loginSec) loginSec.classList.add('hidden');
+  if (registerSec) registerSec.classList.add('hidden');
   // Show navigation
   $('header.navbar').style.display = 'flex';
-  // Set user info with login link
+  // Set user info with login and register links
   const userInfoEl = $('#userInfo');
-  userInfoEl.innerHTML = `<span>Guest</span> | <a href="#" id="loginLink" style="color:#007aff; text-decoration:none;">Login</a>`;
-  // Show nav but hide admin nav
+  userInfoEl.innerHTML = `<span>Guest</span> | <a href="#" id="loginLink" style="color:#007aff; text-decoration:none;">Login</a> | <a href="#" id="registerLink" style="color:#34c759; text-decoration:none;">Register</a>`;
+  // Hide admin navigation
   document.getElementById('adminNav').style.display = 'none';
   // Hide thread creation container
   const newThread = document.getElementById('newThreadContainer');
   if (newThread) newThread.classList.add('hidden');
-  // Attach login link to show login modal
+  // Attach login link to show login page
   document.getElementById('loginLink').addEventListener('click', (e) => {
     e.preventDefault();
-    // Show login modal
-    $('#login-section').classList.remove('hidden');
-    // Show appropriate fields based on selected role
-    const role = $('#roleSelect').value;
-    if (role === 'student') {
-      $('#studentFields').style.display = 'block';
-      $('#adminFields').classList.add('hidden');
-    } else {
-      $('#studentFields').style.display = 'none';
-      $('#adminFields').classList.remove('hidden');
-    }
+    if (loginSec) loginSec.classList.remove('hidden');
+    if (registerSec) registerSec.classList.add('hidden');
+  });
+  // Attach register link to show register page
+  document.getElementById('registerLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    if (registerSec) registerSec.classList.remove('hidden');
+    if (loginSec) loginSec.classList.add('hidden');
   });
   // Load content for guest view
   showSection('home-section');
   setActiveNav(document.querySelector('nav.nav-links button[data-section="home"]'));
   loadAnnouncements();
   loadAssignments();
+  loadHomeAssignments();
   loadResources();
   loadExams();
   loadDiscussions();
   loadCourseInfo();
   loadHomeThreads();
+  loadHomeAssignments();
   // Hide notifications for guests
   const bell = document.getElementById('notificationsBell');
   if (bell) bell.style.display = 'none';
@@ -550,6 +766,123 @@ async function loadHomeThreads() {
     });
   } catch (err) {
     console.error('Failed to load home threads', err);
+  }
+}
+
+/**
+ * Load recent assignments for the home page. This fetches assignments from
+ * the server and displays the five most recent ones in a card layout on
+ * the home page. Each card shows the title, due date and a truncated
+ * description with a single "View" button to open the full assignment
+ * page.  Guests and students see the same list; admins can also use
+ * this to quickly access the grading view via the assignment page.
+ */
+async function loadHomeAssignments() {
+  const container = document.getElementById('homeAssignmentsList');
+  if (!container) return;
+  try {
+    const res = await fetch('/api/assignments');
+    const data = await res.json();
+    container.innerHTML = '';
+    if (!data.length) {
+      const p = document.createElement('p');
+      p.textContent = 'No assignments yet.';
+      container.appendChild(p);
+      return;
+    }
+    // Sort assignments by due date ascending (upcoming first)
+    data.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+    // Show up to five assignments
+    const toShow = data.slice(0, 5);
+    toShow.forEach((assn) => {
+      const card = document.createElement('div');
+      card.className = 'assignment-card';
+      // Left column with details
+      const details = document.createElement('div');
+      details.className = 'details';
+      const title = document.createElement('h4');
+      title.textContent = assn.title;
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = `Due: ${new Date(assn.dueDate).toLocaleString()}`;
+      const desc = document.createElement('div');
+      desc.className = 'description';
+      const rawDesc = assn.description || '';
+      // Parse full markdown for preview and render LaTeX
+      desc.innerHTML = window.marked.parse(rawDesc);
+      if (typeof window.renderMathInElement === 'function') {
+        try {
+          window.renderMathInElement(desc, { delimiters: [ { left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false } ] });
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      details.appendChild(title);
+      details.appendChild(meta);
+      if (rawDesc) details.appendChild(desc);
+      // Right column with actions
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+      const viewBtn = document.createElement('button');
+      viewBtn.className = 'btn-blue';
+      viewBtn.textContent = 'View';
+      viewBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openAssignmentPage(assn);
+      });
+      actions.appendChild(viewBtn);
+      card.appendChild(details);
+      card.appendChild(actions);
+      container.appendChild(card);
+    });
+  } catch (err) {
+    console.error('Failed to load home assignments', err);
+    container.innerHTML = '<p>Failed to load assignments.</p>';
+  }
+}
+
+/**
+ * Load notifications into the dedicated notifications page. This fetches all
+ * notifications for the current user and displays them in a card list.
+ * Clicking on a notification marks it as read and updates the bell count.
+ */
+async function loadNotificationDetails() {
+  const list = document.getElementById('notificationsList');
+  if (!list) return;
+  if (!currentUser) {
+    list.innerHTML = '<p>Please log in to view notifications.</p>';
+    return;
+  }
+  try {
+    const res = await fetch(`/api/notifications?email=${encodeURIComponent(currentUser.email)}`);
+    const notes = await res.json();
+    list.innerHTML = '';
+    if (!notes.length) {
+      const p = document.createElement('p');
+      p.textContent = 'No notifications.';
+      list.appendChild(p);
+      return;
+    }
+    // Sort newest first
+    notes.sort((a, b) => new Date(b.date) - new Date(a.date));
+    notes.forEach((n) => {
+      const item = document.createElement('div');
+      item.className = 'notification-item';
+      if (!n.read) item.classList.add('unread');
+      item.innerHTML = `<div style="font-weight:600;">${n.message}</div><div style="font-size:0.8rem;color:#6e6e73;margin-top:0.25rem;">${new Date(n.date).toLocaleString()}</div>`;
+      item.addEventListener('click', async () => {
+        if (!n.read) {
+          await fetch(`/api/notifications/${n.id}/read`, { method: 'PUT' });
+          n.read = true;
+          item.classList.remove('unread');
+          loadNotifications();
+        }
+      });
+      list.appendChild(item);
+    });
+  } catch (err) {
+    console.error('Failed to load notification details', err);
+    list.innerHTML = '<p>Failed to load notifications.</p>';
   }
 }
 
@@ -662,16 +995,33 @@ async function openThreadPage(threadId) {
       meta.appendChild(arch);
     }
     container.appendChild(meta);
-    // Attachment if exists
+    // Attachment if exists: provide preview for PDFs and download for all types
     if (thread.attachmentPath) {
-      const attLink = document.createElement('a');
       const rel = thread.attachmentPath.replace(/.*uploads[\\/]/, 'uploads/').replace(/\\/g, '/');
-      attLink.href = '/' + rel;
-      attLink.textContent = 'Download Attachment';
-      attLink.target = '_blank';
-      attLink.style.display = 'block';
-      attLink.style.marginTop = '0.5rem';
-      container.appendChild(attLink);
+      const ext = rel.split('.').pop().toLowerCase();
+      const wrapper = document.createElement('div');
+      wrapper.style.display = 'flex';
+      wrapper.style.gap = '0.5rem';
+      wrapper.style.marginTop = '0.5rem';
+      // Preview only for PDF attachments
+      if (ext === 'pdf') {
+        const previewBtn = document.createElement('button');
+        previewBtn.className = 'btn-blue';
+        previewBtn.textContent = 'Preview Attachment';
+        previewBtn.addEventListener('click', () => {
+          openPdfModal('/' + rel, thread.title + ' Attachment');
+        });
+        wrapper.appendChild(previewBtn);
+      }
+      // Download button
+      const downloadBtn = document.createElement('a');
+      downloadBtn.href = '/' + rel;
+      downloadBtn.target = '_blank';
+      downloadBtn.className = ext === 'pdf' ? 'btn-green' : 'btn-blue';
+      downloadBtn.style.textDecoration = 'none';
+      downloadBtn.textContent = 'Download Attachment';
+      wrapper.appendChild(downloadBtn);
+      container.appendChild(wrapper);
     }
     // Content body parsed
     const body = document.createElement('div');
@@ -698,47 +1048,65 @@ async function openThreadPage(threadId) {
       commentsContainer.appendChild(p);
     } else {
       thread.comments.forEach((c) => {
-        const div = document.createElement('div');
-        div.className = 'comment-item';
-        const authorLine = document.createElement('div');
-        authorLine.style.fontSize = '0.85rem';
-        authorLine.style.color = '#6e6e73';
+        // Create a card for each comment
+        const card = document.createElement('div');
+        card.className = 'comment-item';
+        // Meta line (author and date)
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'comment-meta';
         let authHTML = c.authorName;
         if (c.authorRole === 'admin') {
           authHTML += ' <span class="author-label">TA</span>';
         }
-        authorLine.innerHTML = `${authHTML} • ${new Date(c.date).toLocaleString()}`;
-        div.appendChild(authorLine);
-        const cBody = document.createElement('div');
-        cBody.innerHTML = window.marked.parse(c.content || '');
+        metaDiv.innerHTML = `${authHTML} • ${new Date(c.date).toLocaleString()}`;
+        card.appendChild(metaDiv);
+        // Comment body with Markdown and LaTeX
+        const bodyDiv = document.createElement('div');
+        bodyDiv.innerHTML = window.marked.parse(c.content || '');
         if (typeof window.renderMathInElement === 'function') {
           try {
-            window.renderMathInElement(cBody, { delimiters: [ { left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false } ] });
+            window.renderMathInElement(bodyDiv, { delimiters: [ { left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false } ] });
           } catch (err) {
             console.error(err);
           }
         }
-        div.appendChild(cBody);
-        // Attachment
+        card.appendChild(bodyDiv);
+        // Attachment buttons
         if (c.attachmentPath) {
-          const link = document.createElement('a');
           const relp = c.attachmentPath.replace(/.*uploads[\\/]/, 'uploads/').replace(/\\/g, '/');
-          link.href = '/' + relp;
-          link.textContent = 'Attachment';
-          link.target = '_blank';
-          link.style.display = 'block';
-          link.style.marginTop = '0.25rem';
-          div.appendChild(link);
+          const extc = relp.split('.').pop().toLowerCase();
+          const attWrap = document.createElement('div');
+          attWrap.style.display = 'flex';
+          attWrap.style.gap = '0.5rem';
+          attWrap.style.marginTop = '0.25rem';
+          if (extc === 'pdf') {
+            const prevBtn = document.createElement('button');
+            prevBtn.className = 'btn-blue';
+            prevBtn.textContent = 'Preview';
+            prevBtn.addEventListener('click', () => {
+              openPdfModal('/' + relp, 'Comment Attachment');
+            });
+            attWrap.appendChild(prevBtn);
+          }
+          const dlBtn = document.createElement('a');
+          dlBtn.href = '/' + relp;
+          dlBtn.target = '_blank';
+          dlBtn.className = extc === 'pdf' ? 'btn-green' : 'btn-blue';
+          dlBtn.style.textDecoration = 'none';
+          dlBtn.textContent = 'Download';
+          attWrap.appendChild(dlBtn);
+          card.appendChild(attWrap);
         }
-        // Admin delete comment
+        // Admin delete button aligned right in actions container
         if (currentUser && currentUser.role === 'admin') {
+          const actions = document.createElement('div');
+          actions.className = 'comment-actions';
           const delBtn = document.createElement('button');
           delBtn.textContent = 'Delete';
-          delBtn.className = 'small-btn';
-          delBtn.style.marginLeft = '0.5rem';
+          delBtn.className = 'btn-red';
           delBtn.addEventListener('click', async () => {
             if (!confirm('Delete this comment?')) return;
-            const resp = await fetch(`/api/forum/${thread.id}/comments/${c.id}`, { method: 'DELETE' });
+            const resp = await fetchAuth(`/api/forum/${thread.id}/comments/${c.id}`, { method: 'DELETE' });
             if (resp.ok) {
               openThreadPage(thread.id);
             } else {
@@ -746,16 +1114,17 @@ async function openThreadPage(threadId) {
               alert(msg.error || 'Failed to delete');
             }
           });
-          div.appendChild(delBtn);
+          actions.appendChild(delBtn);
+          card.appendChild(actions);
         }
-        commentsContainer.appendChild(div);
+        commentsContainer.appendChild(card);
       });
     }
     container.appendChild(commentsContainer);
     // Comment form if logged in and not pending
     if (currentUser && !(currentUser.role === 'pendingStudent' || currentUser.approved === false)) {
       const form = document.createElement('div');
-      form.className = 'comment-form';
+      form.className = 'comment-form assignment-detail-section';
       const textarea = document.createElement('textarea');
       textarea.placeholder = 'Add a comment...';
       textarea.rows = 3;
@@ -779,7 +1148,7 @@ async function openThreadPage(threadId) {
         if (fileInput.files.length) {
           formData.append('file', fileInput.files[0]);
         }
-        const resp = await fetch(`/api/forum/${thread.id}/comments`, {
+        const resp = await fetchAuth(`/api/forum/${thread.id}/comments`, {
           method: 'POST',
           body: formData,
         });
@@ -809,10 +1178,10 @@ async function openThreadPage(threadId) {
       const adminActions = document.createElement('div');
       adminActions.style.marginTop = '1rem';
       const archiveBtn = document.createElement('button');
-      archiveBtn.className = 'secondary-btn';
+      archiveBtn.className = thread.archived ? 'btn-yellow' : 'btn-yellow';
       archiveBtn.textContent = thread.archived ? 'Unarchive Thread' : 'Archive Thread';
       archiveBtn.addEventListener('click', async () => {
-        const resp = await fetch(`/api/forum/${thread.id}/archive`, { method: 'POST' });
+        const resp = await fetchAuth(`/api/forum/${thread.id}/archive`, { method: 'POST' });
         if (resp.ok) {
           loadDiscussions();
           loadHomeThreads();
@@ -823,12 +1192,12 @@ async function openThreadPage(threadId) {
         }
       });
       const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'secondary-btn';
+      deleteBtn.className = 'btn-red';
       deleteBtn.textContent = 'Delete Thread';
       deleteBtn.style.marginLeft = '0.5rem';
       deleteBtn.addEventListener('click', async () => {
         if (!confirm('Delete this thread?')) return;
-        const resp = await fetch(`/api/forum/${thread.id}`, { method: 'DELETE' });
+        const resp = await fetchAuth(`/api/forum/${thread.id}`, { method: 'DELETE' });
         if (resp.ok) {
           showSection('discussions-section');
           loadDiscussions();
@@ -1065,7 +1434,7 @@ async function openAssignmentPage(assn) {
         formData.append('studentEmail', currentUser.email);
         formData.append('studentID', currentUser.studentId);
         formData.append('studentNameZh', currentUser.studentNameZh);
-        const resp = await fetch(`/api/assignments/${assn.id}/submit`, {
+        const resp = await fetchAuth(`/api/assignments/${assn.id}/submit`, {
           method: 'POST',
           body: formData,
         });
@@ -1164,172 +1533,173 @@ async function loadAssignments() {
     container.appendChild(p);
     return;
   }
-  // For each assignment create a card
+  // Build each assignment card with two columns: details and actions
   for (const assn of data) {
     const card = document.createElement('div');
     card.className = 'assignment-card';
+    const details = document.createElement('div');
+    details.className = 'details';
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    // Title and due date
     const title = document.createElement('h4');
     title.textContent = assn.title;
-    const viewBtn = document.createElement('button');
-    viewBtn.textContent = 'View Details';
-    viewBtn.className = 'small-btn';
-    viewBtn.style.marginLeft = '0.5rem';
-    viewBtn.addEventListener('click', () => openAssignmentPage(assn));
     const meta = document.createElement('div');
     meta.className = 'meta';
     meta.textContent = `Due: ${new Date(assn.dueDate).toLocaleString()}`;
+    // Description parsed
     const desc = document.createElement('div');
     desc.className = 'description';
-    // Render Markdown and LaTeX into HTML.  Use marked for Markdown parsing and KaTeX for math.
     const rawDesc = assn.description || '';
     desc.innerHTML = window.marked.parse(rawDesc);
-    // Render LaTeX within the description using KaTeX auto-render.  It will ignore non‑math portions.
     if (typeof window.renderMathInElement === 'function') {
       try {
-        window.renderMathInElement(desc, { delimiters: [
-          { left: '$$', right: '$$', display: true },
-          { left: '$', right: '$', display: false },
-        ] });
+        window.renderMathInElement(desc, { delimiters: [ { left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false } ] });
       } catch (err) {
         console.error('KaTeX rendering error:', err);
       }
     }
-    card.appendChild(title);
-    card.appendChild(viewBtn);
-    card.appendChild(meta);
-    // If assignment has an associated PDF, provide a download link
+    details.appendChild(title);
+    details.appendChild(meta);
+    if (rawDesc) details.appendChild(desc);
+    // Primary action: view details
+    const viewBtn = document.createElement('button');
+    viewBtn.className = 'btn-blue';
+    viewBtn.textContent = 'View Details';
+    viewBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openAssignmentPage(assn);
+    });
+    actions.appendChild(viewBtn);
+    // Provide a download button for the assignment PDF
     if (assn.pdfPath) {
-      const pdfLink = document.createElement('a');
-      // Construct relative URL by trimming everything before the uploads folder and normalising separators
       const relPath = assn.pdfPath.replace(/.*uploads[\\/]/, 'uploads/').replace(/\\/g, '/');
-      pdfLink.href = '/' + relPath;
-      pdfLink.textContent = 'Download Assignment (PDF)';
-      pdfLink.className = 'pdf-link';
-      pdfLink.style.display = 'block';
-      pdfLink.target = '_blank';
-      card.appendChild(pdfLink);
+      const downloadBtn = document.createElement('a');
+      downloadBtn.href = '/' + relPath;
+      downloadBtn.target = '_blank';
+      downloadBtn.className = 'btn-green';
+      downloadBtn.style.textDecoration = 'none';
+      downloadBtn.textContent = 'Download PDF';
+      actions.appendChild(downloadBtn);
     }
-    card.appendChild(desc);
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    // Student submission status
+    // Student submission actions and status
     if (currentUser && currentUser.role === 'student' && currentUser.approved !== false) {
-      // fetch submissions for this assignment filtered by student
-      const resSub = await fetch(`/api/assignments/${assn.id}/submissions`);
-      const subs = await resSub.json();
-      const mySub = subs.find((s) => s.studentEmail === currentUser.email);
-      const status = document.createElement('div');
-      status.style.fontSize = '0.85rem';
-      status.style.marginBottom = '0.5rem';
-      if (mySub) {
-        if (mySub.graded) {
-          status.innerHTML = `<strong>Grade: ${mySub.grade}</strong><br/>Comments: ${mySub.comments || '—'}`;
-          if (mySub.feedbackPath) {
-            const link = document.createElement('a');
-            const rel = mySub.feedbackPath.replace(/.*uploads\\/, 'uploads/').replace(/\\/g, '/');
-            link.href = '/' + rel;
-            link.textContent = 'Download Feedback';
-            link.style.marginLeft = '0.5rem';
-            link.target = '_blank';
-            status.appendChild(document.createElement('br'));
-            status.appendChild(link);
+      try {
+        const resSub = await fetch(`/api/assignments/${assn.id}/submissions`);
+        const subs = await resSub.json();
+        const mySub = subs.find((s) => s.studentEmail === currentUser.email);
+        const statusDiv = document.createElement('div');
+        statusDiv.style.fontSize = '0.85rem';
+        statusDiv.style.marginTop = '0.5rem';
+        if (mySub) {
+          if (mySub.graded) {
+            statusDiv.innerHTML = `<strong>Grade: ${mySub.grade}</strong><br/>Comments: ${mySub.comments || '—'}`;
+            if (mySub.feedbackPath) {
+              const feedbackRel = mySub.feedbackPath.replace(/.*uploads[\\/]/, 'uploads/').replace(/\\/g, '/');
+              const link = document.createElement('a');
+              link.href = '/' + feedbackRel;
+              link.textContent = 'Download Feedback';
+              link.target = '_blank';
+              link.className = 'btn-green';
+              link.style.display = 'inline-block';
+              link.style.marginTop = '0.25rem';
+              statusDiv.appendChild(document.createElement('br'));
+              statusDiv.appendChild(link);
+            }
+          } else {
+            statusDiv.textContent = `Submitted on ${new Date(mySub.uploadedAt).toLocaleString()}`;
           }
         } else {
-          status.textContent = `Submitted on ${new Date(mySub.uploadedAt).toLocaleString()}`;
+          statusDiv.textContent = 'Not yet submitted';
         }
-      } else {
-        status.textContent = 'Not yet submitted';
-      }
-      card.appendChild(status);
-      // If not graded, allow (re)submission using a custom upload UI
-      if (!mySub || !mySub.graded) {
-        // Container to group the file input, label and submit button
-        const uploadContainer = document.createElement('div');
-        uploadContainer.className = 'upload-container';
-        const fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.accept = 'application/pdf';
-        // Assign a unique id for label association
-        const inputId = `upload-${assn.id}-${Math.floor(Math.random() * 1000000)}`;
-        fileInput.id = inputId;
-        const label = document.createElement('label');
-        label.className = 'upload-label';
-        label.setAttribute('for', inputId);
-        // Use Font Awesome icon for file upload
-        label.innerHTML = '<i class="fa-solid fa-file-arrow-up"></i> Choose PDF';
-        const fileNameSpan = document.createElement('span');
-        fileNameSpan.className = 'file-name';
-        fileNameSpan.textContent = 'No file chosen';
-        // Update displayed file name when selection changes
-        fileInput.addEventListener('change', () => {
-          if (fileInput.files.length) {
-            fileNameSpan.textContent = fileInput.files[0].name;
-          } else {
-            fileNameSpan.textContent = 'No file chosen';
-          }
-        });
-        const submitBtn = document.createElement('button');
-        submitBtn.className = 'primary-btn';
-        submitBtn.textContent = mySub ? 'Replace' : 'Submit';
-        submitBtn.addEventListener('click', async () => {
-          if (!fileInput.files.length) {
-            alert('Please select a PDF to submit.');
-            return;
-          }
-          const formData = new FormData();
-          formData.append('file', fileInput.files[0]);
-          formData.append('studentName', currentUser.name);
-          formData.append('studentEmail', currentUser.email);
-          formData.append('studentID', currentUser.studentId);
-          formData.append('studentNameZh', currentUser.studentNameZh);
-          const resp = await fetch(`/api/assignments/${assn.id}/submit`, {
-            method: 'POST',
-            body: formData,
+        actions.appendChild(statusDiv);
+        // If not graded, allow (re)submission
+        if (!mySub || !mySub.graded) {
+          const uploadContainer = document.createElement('div');
+          uploadContainer.className = 'upload-container';
+          const fileInput = document.createElement('input');
+          fileInput.type = 'file';
+          fileInput.accept = 'application/pdf';
+          const inputId = `upload-${assn.id}-${Math.floor(Math.random() * 1000000)}`;
+          fileInput.id = inputId;
+          const label = document.createElement('label');
+          label.className = 'upload-label';
+          label.setAttribute('for', inputId);
+          label.innerHTML = '<i class="fa-solid fa-file-arrow-up"></i> Choose PDF';
+          const fileNameSpan = document.createElement('span');
+          fileNameSpan.className = 'file-name';
+          fileNameSpan.textContent = 'No file chosen';
+          fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) {
+              fileNameSpan.textContent = fileInput.files[0].name;
+            } else {
+              fileNameSpan.textContent = 'No file chosen';
+            }
           });
-          if (resp.ok) {
-            alert('Submission uploaded successfully.');
-            loadAssignments();
-          } else {
-            const msg = await resp.json();
-            alert(msg.error || 'Submission failed');
-          }
-        });
-        uploadContainer.appendChild(fileInput);
-        uploadContainer.appendChild(label);
-        uploadContainer.appendChild(fileNameSpan);
-        uploadContainer.appendChild(submitBtn);
-        actions.appendChild(uploadContainer);
+          const submitBtn = document.createElement('button');
+          submitBtn.className = 'primary-btn';
+          submitBtn.textContent = mySub ? 'Replace' : 'Submit';
+          submitBtn.addEventListener('click', async () => {
+            if (!fileInput.files.length) {
+              alert('Please select a PDF to submit.');
+              return;
+            }
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('studentName', currentUser.name);
+            formData.append('studentEmail', currentUser.email);
+            formData.append('studentID', currentUser.studentId);
+            formData.append('studentNameZh', currentUser.studentNameZh);
+            const resp = await fetchAuth(`/api/assignments/${assn.id}/submit`, {
+              method: 'POST',
+              body: formData,
+            });
+            if (resp.ok) {
+              alert('Submission uploaded successfully.');
+              loadAssignments();
+            } else {
+              const msg = await resp.json();
+              alert(msg.error || 'Submission failed');
+            }
+          });
+          uploadContainer.appendChild(fileInput);
+          uploadContainer.appendChild(label);
+          uploadContainer.appendChild(fileNameSpan);
+          uploadContainer.appendChild(submitBtn);
+          actions.appendChild(uploadContainer);
+        }
+      } catch (err) {
+        console.error('Failed to load submission status', err);
       }
     } else if (currentUser && (currentUser.role === 'pendingStudent' || currentUser.approved === false)) {
-      // Pending students cannot submit
-      const msg = document.createElement('div');
-      msg.className = 'guest-message';
-      msg.style.fontSize = '0.85rem';
-      msg.style.color = '#6e6e73';
-      msg.textContent = 'Registration pending: you cannot submit assignments yet.';
-      card.appendChild(msg);
+      const msgDiv = document.createElement('div');
+      msgDiv.style.fontSize = '0.85rem';
+      msgDiv.style.color = '#6e6e73';
+      msgDiv.style.marginTop = '0.5rem';
+      msgDiv.textContent = 'Registration pending: you cannot submit assignments yet.';
+      actions.appendChild(msgDiv);
     } else if (!currentUser) {
-      // Guest: show message to log in to submit
-      const msg = document.createElement('div');
-      msg.className = 'guest-message';
-      msg.style.fontSize = '0.85rem';
-      msg.style.color = '#6e6e73';
-      msg.textContent = 'Login to submit this assignment.';
-      card.appendChild(msg);
+      const msgDiv = document.createElement('div');
+      msgDiv.style.fontSize = '0.85rem';
+      msgDiv.style.color = '#6e6e73';
+      msgDiv.style.marginTop = '0.5rem';
+      msgDiv.textContent = 'Login to submit this assignment.';
+      actions.appendChild(msgDiv);
     }
-    // Admin actions
+    // Admin grade button
     if (currentUser && currentUser.role === 'admin') {
       const gradeBtn = document.createElement('button');
-      gradeBtn.className = 'primary-btn';
+      gradeBtn.className = 'btn-yellow';
       gradeBtn.textContent = 'Grade Submissions';
-      gradeBtn.addEventListener('click', () => {
+      gradeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
         openGradeModal(assn);
       });
       actions.appendChild(gradeBtn);
     }
-    if (actions.children.length > 0) {
-      card.appendChild(actions);
-    }
+    // Append details and actions to card
+    card.appendChild(details);
+    card.appendChild(actions);
     container.appendChild(card);
   }
 }
@@ -1346,18 +1716,36 @@ async function loadResources() {
     return;
   }
   data.forEach((resItem) => {
-    const div = document.createElement('div');
-    div.className = 'resource-item';
+    const card = document.createElement('div');
+    card.className = 'resource-card';
     const title = document.createElement('h4');
     title.textContent = resItem.title;
-    const link = document.createElement('a');
-    const fileRel = resItem.filePath.replace(/.*uploads\//, 'uploads/');
-    link.href = '/' + fileRel.replace(/\\/g, '/');
-    link.textContent = 'Download';
-    link.target = '_blank';
-    div.appendChild(title);
-    div.appendChild(link);
-    container.appendChild(div);
+    card.appendChild(title);
+    const actions = document.createElement('div');
+    actions.style.display = 'flex';
+    actions.style.gap = '0.5rem';
+    const fileRel = resItem.filePath.replace(/.*uploads\//, 'uploads/').replace(/\\/g, '/');
+    const ext = fileRel.split('.').pop().toLowerCase();
+    // Preview button for PDFs
+    if (ext === 'pdf') {
+      const previewBtn = document.createElement('button');
+      previewBtn.className = 'btn-blue';
+      previewBtn.textContent = 'Preview';
+      previewBtn.addEventListener('click', () => {
+        openPdfModal('/' + fileRel, resItem.title);
+      });
+      actions.appendChild(previewBtn);
+    }
+    // Download button
+    const downloadBtn = document.createElement('a');
+    downloadBtn.href = '/' + fileRel;
+    downloadBtn.target = '_blank';
+    downloadBtn.className = 'btn-green';
+    downloadBtn.style.textDecoration = 'none';
+    downloadBtn.textContent = 'Download';
+    actions.appendChild(downloadBtn);
+    card.appendChild(actions);
+    container.appendChild(card);
   });
 }
 
@@ -1407,22 +1795,33 @@ async function loadScores() {
       container.textContent = 'No assignments to display yet.';
       return;
     }
-    const table = document.createElement('table');
-    table.className = 'score-table';
-    const thead = document.createElement('thead');
-    const trh = document.createElement('tr');
-    trh.innerHTML = '<th>Assignment</th><th>Average</th><th>Count</th>';
-    thead.appendChild(trh);
-    table.appendChild(thead);
-    const tbody = document.createElement('tbody');
+    // Render each assignment statistic as a card with a progress bar showing the average grade
     stats.forEach((item) => {
-      const tr = document.createElement('tr');
+      const card = document.createElement('div');
+      card.className = 'score-card';
+      const title = document.createElement('div');
+      title.className = 'title';
+      title.textContent = item.title;
+      card.appendChild(title);
+      const meta = document.createElement('div');
+      meta.className = 'meta';
       const avg = item.average !== null ? Number(item.average).toFixed(2) : 'N/A';
-      tr.innerHTML = `<td>${item.title}</td><td>${avg}</td><td>${item.count}</td>`;
-      tbody.appendChild(tr);
+      meta.textContent = `Average: ${avg}  |  Submissions: ${item.count}`;
+      card.appendChild(meta);
+      if (item.average !== null) {
+        const bar = document.createElement('div');
+        bar.className = 'progress-bar';
+        const prog = document.createElement('div');
+        prog.className = 'progress';
+        // Limit average to [0,100] and compute width
+        const pct = Math.max(0, Math.min(100, item.average));
+        prog.style.width = pct + '%';
+        prog.textContent = `${pct.toFixed(0)}%`;
+        bar.appendChild(prog);
+        card.appendChild(bar);
+      }
+      container.appendChild(card);
     });
-    table.appendChild(tbody);
-    container.appendChild(table);
   } catch (err) {
     console.error('Failed to load scores', err);
     container.textContent = 'Failed to load grade statistics.';
@@ -1436,65 +1835,124 @@ async function loadScores() {
  * defined.
  */
 async function loadMessages() {
-  const container = document.getElementById('messageList');
-  if (!container || !currentUser) return;
-  container.innerHTML = '';
+  // Chat based message loading. Group messages into conversations and display them in the sidebar.
+  const convList = document.getElementById('conversationList');
+  const header = document.getElementById('chatHeader');
+  const messagesDiv = document.getElementById('chatMessages');
+  if (!convList || !header || !messagesDiv) return;
+  if (!currentUser) {
+    convList.innerHTML = '';
+    header.textContent = '';
+    messagesDiv.innerHTML = '<p style="padding:0.5rem;color:#6e6e73;">Login to view messages.</p>';
+    return;
+  }
   try {
-    const res = await fetch(`/api/messages?email=${encodeURIComponent(currentUser.email)}`);
+    const res = await fetchAuth(`/api/messages?email=${encodeURIComponent(currentUser.email)}`);
     if (!res.ok) {
-      throw new Error('Failed');
+      throw new Error('Failed to fetch messages');
     }
     const msgs = await res.json();
-    if (!msgs.length) {
-      container.textContent = 'No messages.';
+    // Group messages by partner email
+    const conversations = {};
+    msgs.forEach((m) => {
+      const partner = m.fromEmail === currentUser.email ? m.toEmail : m.fromEmail;
+      if (!conversations[partner]) conversations[partner] = [];
+      conversations[partner].push(m);
+    });
+    // Render conversation list
+    convList.innerHTML = '';
+    const partners = Object.keys(conversations);
+    partners.forEach((partner) => {
+      const div = document.createElement('div');
+      div.className = 'message-item';
+      // Use partner as display; could fetch name if stored
+      div.innerHTML = `<strong>${partner}</strong>`;
+      // Unread count
+      const unreadCount = conversations[partner].filter((msg) => msg.toEmail === currentUser.email && !msg.read).length;
+      if (unreadCount > 0) {
+        const badge = document.createElement('span');
+        badge.style.backgroundColor = '#ff3b30';
+        badge.style.color = '#fff';
+        badge.style.borderRadius = '12px';
+        badge.style.padding = '0 6px';
+        badge.style.fontSize = '0.75rem';
+        badge.style.marginLeft = '0.5rem';
+        badge.textContent = unreadCount.toString();
+        div.appendChild(badge);
+      }
+      div.style.cursor = 'pointer';
+      div.addEventListener('click', () => {
+        currentConversation = partner;
+        renderConversation(partner, conversations[partner]);
+      });
+      convList.appendChild(div);
+    });
+    // If no conversations, show placeholder
+    if (!partners.length) {
+      convList.innerHTML = '<p style="font-size:0.85rem; color:#6e6e73;">No conversations yet.</p>';
+      header.textContent = '';
+      messagesDiv.innerHTML = '<p style="padding:0.5rem;color:#6e6e73;">Start a conversation using the form below.</p>';
       return;
     }
-    msgs.sort((a, b) => new Date(b.date) - new Date(a.date));
-    msgs.forEach((msg) => {
-      const item = document.createElement('div');
-      item.className = 'message-item';
-      if (!msg.read) item.classList.add('unread');
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      meta.textContent = `From: ${msg.fromName} • ${new Date(msg.date).toLocaleString()}`;
-      item.appendChild(meta);
-      const subject = document.createElement('div');
-      subject.style.fontWeight = '600';
-      subject.textContent = msg.subject;
-      item.appendChild(subject);
-      const snippet = document.createElement('div');
-      snippet.style.fontSize = '0.85rem';
-      snippet.style.color = '#3a3a3c';
-      snippet.textContent = msg.content.length > 100 ? msg.content.substring(0, 100) + '…' : msg.content;
-      item.appendChild(snippet);
-      item.addEventListener('click', async () => {
-        // Toggle full content display
-        const existing = item.querySelector('.full');
-        if (existing) {
-          existing.remove();
-        } else {
-          const full = document.createElement('div');
-          full.className = 'full';
-          full.style.marginTop = '0.5rem';
-          full.style.borderTop = '1px solid #e5e5ea';
-          full.style.paddingTop = '0.5rem';
-          full.textContent = msg.content;
-          item.appendChild(full);
-          if (!msg.read) {
-            // Mark as read on server
-            await fetch(`/api/messages/${msg.id}/read`, { method: 'PUT' });
-            msg.read = true;
-            item.classList.remove('unread');
-            loadNotifications();
-          }
-        }
-      });
-      container.appendChild(item);
-    });
+    // Determine current conversation: keep previous selection if exists; else pick first
+    let partnerToShow = currentConversation;
+    if (!partnerToShow || !conversations[partnerToShow]) {
+      partnerToShow = partners[0];
+    }
+    currentConversation = partnerToShow;
+    renderConversation(partnerToShow, conversations[partnerToShow]);
   } catch (err) {
     console.error('Failed to load messages', err);
-    container.textContent = 'Failed to load messages.';
+    convList.innerHTML = '<p>Failed to load conversations.</p>';
+    header.textContent = '';
+    messagesDiv.innerHTML = '<p></p>';
   }
+}
+
+/**
+ * Render a conversation in the chat view. It displays all messages between
+ * the current user and the specified partner in chronological order,
+ * differentiating between messages sent by the current user (self) and
+ * messages received (other). Unread messages addressed to the current
+ * user are marked as read on the server.
+ *
+ * @param {string} partner The email address of the conversation partner
+ * @param {Array} messages Array of message objects for this conversation
+ */
+async function renderConversation(partner, messages) {
+  const header = document.getElementById('chatHeader');
+  const messagesDiv = document.getElementById('chatMessages');
+  if (!header || !messagesDiv) return;
+  currentConversation = partner;
+  header.textContent = partner;
+  // Clear previous messages
+  messagesDiv.innerHTML = '';
+  // Sort by date ascending
+  messages.sort((a, b) => new Date(a.date) - new Date(b.date));
+  for (const msg of messages) {
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-message';
+    if (msg.fromEmail === currentUser.email) {
+      bubble.classList.add('self');
+    } else {
+      bubble.classList.add('other');
+    }
+    bubble.textContent = msg.content;
+    messagesDiv.appendChild(bubble);
+    // Mark unread messages addressed to current user as read
+    if (msg.toEmail === currentUser.email && !msg.read) {
+      try {
+        await fetchAuth(`/api/messages/${msg.id}/read`, { method: 'PUT' });
+        msg.read = true;
+      } catch (err) {
+        console.error('Failed to mark message as read', err);
+      }
+    }
+  }
+  // Scroll to bottom
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  // Reload notifications to update unread count
+  loadNotifications();
 }
 
 /**
@@ -1508,7 +1966,7 @@ async function loadPendingStudents() {
     return;
   }
   try {
-    const res = await fetch('/api/students/pending');
+    const res = await fetchAuth('/api/students/pending');
     const list = await res.json();
     container.innerHTML = '';
     if (!list.length) {
@@ -1526,7 +1984,7 @@ async function loadPendingStudents() {
       approveBtn.textContent = 'Approve';
       approveBtn.addEventListener('click', async () => {
         if (!confirm('Approve this student?')) return;
-        await fetch(`/api/students/${s.id}/approve`, { method: 'POST' });
+        await fetchAuth(`/api/students/${s.id}/approve`, { method: 'POST' });
         alert('Student approved');
         loadPendingStudents();
         loadStudentList();
@@ -1536,7 +1994,7 @@ async function loadPendingStudents() {
       rejectBtn.textContent = 'Reject';
       rejectBtn.addEventListener('click', async () => {
         if (!confirm('Reject this student?')) return;
-        await fetch(`/api/students/${s.id}/reject`, { method: 'POST' });
+        await fetchAuth(`/api/students/${s.id}/reject`, { method: 'POST' });
         alert('Student rejected');
         loadPendingStudents();
       });
@@ -1564,7 +2022,7 @@ async function loadStudentList() {
     return;
   }
   try {
-    const res = await fetch('/api/students/muted');
+    const res = await fetchAuth('/api/students/muted');
     const muted = await res.json();
     container.innerHTML = '';
     if (!muted.length) {
@@ -1788,7 +2246,7 @@ async function openThreadModal(threadId) {
     archiveBtn.className = 'secondary-btn';
     archiveBtn.textContent = thread.archived ? 'Unarchive Thread' : 'Archive Thread';
     archiveBtn.addEventListener('click', async () => {
-      const resp = await fetch(`/api/forum/${thread.id}/archive`, { method: 'POST' });
+      const resp = await fetchAuth(`/api/forum/${thread.id}/archive`, { method: 'POST' });
       if (resp.ok) {
         loadDiscussions();
         loadAdminThreads();
@@ -1804,7 +2262,7 @@ async function openThreadModal(threadId) {
     deleteBtn.style.marginLeft = '0.5rem';
     deleteBtn.addEventListener('click', async () => {
       if (!confirm('Delete this thread?')) return;
-      const resp = await fetch(`/api/forum/${thread.id}`, { method: 'DELETE' });
+      const resp = await fetchAuth(`/api/forum/${thread.id}`, { method: 'DELETE' });
       if (resp.ok) {
         modal.classList.add('hidden');
         loadDiscussions();
@@ -1851,7 +2309,7 @@ async function loadAdminThreads() {
     archive.className = 'small-btn';
     archive.textContent = th.archived ? 'Unarchive' : 'Archive';
     archive.addEventListener('click', async () => {
-      const resp = await fetch(`/api/forum/${th.id}/archive`, { method: 'POST' });
+      const resp = await fetchAuth(`/api/forum/${th.id}/archive`, { method: 'POST' });
       if (resp.ok) {
         loadDiscussions();
         loadAdminThreads();
@@ -1866,7 +2324,7 @@ async function loadAdminThreads() {
     del.style.marginLeft = '0.5rem';
     del.addEventListener('click', async () => {
       if (!confirm('Delete this thread?')) return;
-      const resp = await fetch(`/api/forum/${th.id}`, { method: 'DELETE' });
+      const resp = await fetchAuth(`/api/forum/${th.id}`, { method: 'DELETE' });
       if (resp.ok) {
         loadDiscussions();
         loadAdminThreads();
@@ -2120,7 +2578,7 @@ function openGradingInterface(assignment, submission) {
       if (blob && blob.size > 0) {
         formData.append('annotation', blob, 'annotation.png');
       }
-      const resp = await fetch(`/api/assignments/${assignment.id}/submissions/${submission.id}/grade`, {
+      const resp = await fetchAuth(`/api/assignments/${assignment.id}/submissions/${submission.id}/grade`, {
         method: 'POST',
         body: formData,
       });
@@ -2191,4 +2649,106 @@ function setupDrawing(canvas) {
     draw(touch);
   });
   canvas.addEventListener('touchend', end);
+}
+
+//
+// Utility to preview any PDF using pdf.js in a modal. Provides pagination and zoom
+// controls similar to the assignment page. Used for resource previews and
+// discussion attachments.
+//
+function openPdfModal(url, title = 'PDF Preview') {
+  const modal = document.getElementById('pdfModal');
+  const content = document.getElementById('pdfModalContent');
+  if (!modal || !content) return;
+  content.innerHTML = '';
+  // Header with title and close button
+  const header = document.createElement('div');
+  header.className = 'modal-header';
+  const h = document.createElement('h3');
+  h.textContent = title;
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'modal-close';
+  closeBtn.innerHTML = '&times;';
+  closeBtn.addEventListener('click', () => {
+    modal.classList.add('hidden');
+  });
+  header.appendChild(h);
+  header.appendChild(closeBtn);
+  content.appendChild(header);
+  // Controls for pagination and zoom
+  const controls = document.createElement('div');
+  controls.className = 'pdf-viewer-controls';
+  const prevBtn = document.createElement('button');
+  prevBtn.textContent = 'Prev';
+  const nextBtn = document.createElement('button');
+  nextBtn.textContent = 'Next';
+  const zoomOutBtn = document.createElement('button');
+  zoomOutBtn.textContent = '−';
+  const zoomInBtn = document.createElement('button');
+  zoomInBtn.textContent = '+';
+  const pageInfo = document.createElement('span');
+  pageInfo.className = 'page-info';
+  controls.appendChild(prevBtn);
+  controls.appendChild(nextBtn);
+  controls.appendChild(zoomOutBtn);
+  controls.appendChild(zoomInBtn);
+  controls.appendChild(pageInfo);
+  content.appendChild(controls);
+  // Canvas container
+  const viewer = document.createElement('div');
+  viewer.className = 'pdf-container';
+  const canvasEl = document.createElement('canvas');
+  viewer.appendChild(canvasEl);
+  content.appendChild(viewer);
+  // pdf.js document and state
+  let doc = null;
+  let pageNum = 1;
+  let scale = 1.0;
+  async function renderPage(num) {
+    if (!doc) return;
+    const page = await doc.getPage(num);
+    const viewport = page.getViewport({ scale });
+    canvasEl.width = viewport.width;
+    canvasEl.height = viewport.height;
+    const ctx = canvasEl.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    pageInfo.textContent = `Page ${pageNum} / ${doc.numPages}`;
+  }
+  function updateControls() {
+    if (!doc) return;
+    prevBtn.disabled = pageNum <= 1;
+    nextBtn.disabled = pageNum >= doc.numPages;
+  }
+  if (window.pdfjsLib) {
+    pdfjsLib.getDocument(url).promise.then((d) => {
+      doc = d;
+      renderPage(pageNum);
+      updateControls();
+    }).catch((err) => {
+      console.error('Failed to load PDF', err);
+    });
+  }
+  prevBtn.addEventListener('click', () => {
+    if (pageNum > 1) {
+      pageNum--;
+      renderPage(pageNum);
+      updateControls();
+    }
+  });
+  nextBtn.addEventListener('click', () => {
+    if (doc && pageNum < doc.numPages) {
+      pageNum++;
+      renderPage(pageNum);
+      updateControls();
+    }
+  });
+  zoomInBtn.addEventListener('click', () => {
+    scale = Math.min(scale + 0.25, 2.0);
+    renderPage(pageNum);
+  });
+  zoomOutBtn.addEventListener('click', () => {
+    scale = Math.max(scale - 0.25, 0.5);
+    renderPage(pageNum);
+  });
+  modal.classList.remove('hidden');
 }

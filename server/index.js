@@ -5,6 +5,11 @@ const fs = require('fs');
 const path = require('path');
 const { PDFDocument, rgb } = require('pdf-lib');
 const nodemailer = require('nodemailer');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+
+// Secret for JWT signing. In production this should be stored in an env var.
+const JWT_SECRET = process.env.JWT_SECRET || 'temporary-dev-secret';
 
 /**
  * Simple in‑memory data stores. In a production system these would live in a
@@ -21,10 +26,21 @@ const exams = [];
 // Course information (editable via API). Initially provide a default description.
 let courseInfo = `This course introduces the foundations of modern algebra, including group theory, ring theory, and linear algebra. Throughout the semester we will explore algebraic structures and their applications.`;
 
+// TA invitation code. In lieu of a persistent database we store it in this
+// variable. Administrators can update it via the /api/taCode endpoint.
+global.taInvitationCode = 'TA2025';
+
 // Notification store. Each entry has { id, email, message, read, date }.
 // In production this would be persisted in a database and potentially delivered via
 // websockets. Here we keep it in memory for demonstration purposes.
 const notifications = [];
+
+// Users store. Each user has:
+// { name, email, passwordHash, role ('student'|'admin'), approved: boolean,
+//   studentId, studentNameZh }
+// On startup this is empty; users register via /api/auth/register. Students
+// start as approved=false and must be approved by an admin via pendingStudents.
+const users = [];
 
 // Student registration and management
 // Pending student registrations awaiting admin approval
@@ -59,6 +75,47 @@ function createNotification(email, message) {
 // Discussion forum threads (in-memory). Each thread has fields:
 // { id, title, content, authorName, authorEmail, date, archived, comments: [ { id, authorName, authorEmail, content, date } ] }
 const forumThreads = [];
+
+/**
+ * Generate a JWT token for the given user. Only includes email and role for
+ * payload to avoid leaking PII. Tokens expire in 7 days by default.
+ *
+ * @param {object} user
+ * @returns {string}
+ */
+function generateToken(user) {
+  return jwt.sign({ email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+}
+
+/**
+ * Middleware to enforce that a request has a valid JWT token. If valid the
+ * decoded token is stored on req.user. Otherwise returns 401.
+ */
+function authRequired(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authorization required' });
+  }
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+/**
+ * Middleware to restrict access to administrators (role === 'admin'). The
+ * authRequired middleware must run before this to set req.user.
+ */
+function adminRequired(req, res, next) {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access only' });
+  }
+  next();
+}
 
 // Create uploads directory if it does not exist
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -105,6 +162,69 @@ app.use(express.static(path.join(__dirname, '..', 'client')));
 // Serve uploaded files so they can be accessed by the frontend
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+/**
+ * Authentication routes
+ */
+// Register a new user. Students go into pending approval. Admins require a valid invite code.
+app.post('/api/auth/register', async (req, res) => {
+  const { name, email, password, role, studentId, studentNameZh, inviteCode } = req.body;
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  const existing = users.find((u) => u.email === email);
+  if (existing) {
+    return res.status(409).json({ error: 'Email already registered' });
+  }
+  const passwordHash = await bcrypt.hash(password, 10);
+  if (role === 'admin') {
+    // Validate TA invitation code. Use the value stored in taInvitationCode if available, otherwise default.
+    const validCode = global.taInvitationCode || 'TA2025';
+    if (inviteCode !== validCode) {
+      return res.status(403).json({ error: 'Invalid invitation code' });
+    }
+    const user = { name, email, passwordHash, role: 'admin', approved: true };
+    users.push(user);
+    const token = generateToken(user);
+    return res.status(201).json({ token, user: { name, email, role: 'admin', approved: true } });
+  }
+  // Student registration: approved=false by default
+  const id = Date.now().toString();
+  const pending = { id, name, email, studentId, studentNameZh };
+  pendingStudents.push(pending);
+  const user = { name, email, passwordHash, role: 'student', approved: false, studentId, studentNameZh };
+  users.push(user);
+  // Notify user of pending status
+  createNotification(email, 'Registration submitted – pending approval');
+  const token = generateToken(user);
+  return res.status(201).json({ token, user: { name, email, role: 'student', approved: false, studentId, studentNameZh } });
+});
+
+// Log in a user by verifying email and password
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Missing email or password' });
+  }
+  const user = users.find((u) => u.email === email);
+  if (!user) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+  const ok = await bcrypt.compare(password, user.passwordHash);
+  if (!ok) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+  // Determine approval status
+  if (user.role === 'student') {
+    if (students.find((s) => s.email === email)) {
+      user.approved = true;
+    } else if (pendingStudents.find((p) => p.email === email)) {
+      user.approved = false;
+    }
+  }
+  const token = generateToken(user);
+  return res.json({ token, user: { name: user.name, email: user.email, role: user.role, approved: user.approved, studentId: user.studentId, studentNameZh: user.studentNameZh } });
+});
+
 /*
  * Email transport configuration. This example uses a local transport which
  * simply logs emails to the console. To actually send mail you would need
@@ -145,7 +265,7 @@ app.get('/api/announcements', (req, res) => {
   res.json(announcements);
 });
 
-app.post('/api/announcements', (req, res) => {
+app.post('/api/announcements', authRequired, adminRequired, (req, res) => {
   const { title, content } = req.body;
   const id = Date.now();
   const announcement = { id, title, content, date: new Date().toISOString() };
@@ -162,7 +282,7 @@ app.get('/api/assignments', (req, res) => {
 });
 
 // Create a new assignment with optional PDF file
-app.post('/api/assignments', upload.single('file'), (req, res) => {
+app.post('/api/assignments', authRequired, adminRequired, upload.single('file'), (req, res) => {
   const { title, description, dueDate } = req.body;
   const file = req.file;
   const id = Date.now().toString();
@@ -305,7 +425,7 @@ app.get('/api/resources', (req, res) => {
   res.json(resources);
 });
 
-app.post('/api/resources', upload.single('file'), (req, res) => {
+app.post('/api/resources', authRequired, adminRequired, upload.single('file'), (req, res) => {
   const { title } = req.body;
   const file = req.file;
   if (!file) {
@@ -323,11 +443,24 @@ app.get('/api/exams', (req, res) => {
   res.json(exams);
 });
 
-app.post('/api/exams', (req, res) => {
+app.post('/api/exams', authRequired, adminRequired, (req, res) => {
   const { title, date, description } = req.body;
   const id = Date.now().toString();
   exams.push({ id, title, date, description });
   res.status(201).json({ id });
+});
+
+/**
+ * Update TA invitation code. Requires admin authentication. The new code is
+ * stored in memory (global.taInvitationCode) and returned in the response.
+ */
+app.put('/api/taCode', authRequired, adminRequired, (req, res) => {
+  const { code } = req.body;
+  if (!code) {
+    return res.status(400).json({ error: 'Code is required' });
+  }
+  global.taInvitationCode = code;
+  return res.json({ code });
 });
 
 /**
@@ -351,7 +484,7 @@ app.get('/api/forum', (req, res) => {
 });
 
 // Create a new thread (optionally with an attachment file)
-app.post('/api/forum', upload.single('file'), (req, res) => {
+app.post('/api/forum', authRequired, upload.single('file'), (req, res) => {
   const { title, content, authorName, authorEmail } = req.body;
   if (!title || !content || !authorName || !authorEmail) {
     return res.status(400).json({ error: 'Missing fields' });
@@ -389,7 +522,7 @@ app.get('/api/forum/:id', (req, res) => {
 });
 
 // Add a comment to a thread (optionally with an attachment)
-app.post('/api/forum/:id/comments', upload.single('file'), (req, res) => {
+app.post('/api/forum/:id/comments', authRequired, upload.single('file'), (req, res) => {
   const thread = forumThreads.find((t) => t.id === req.params.id);
   if (!thread) return res.status(404).json({ error: 'Thread not found' });
   const { content, authorName, authorEmail } = req.body;
@@ -417,7 +550,7 @@ app.post('/api/forum/:id/comments', upload.single('file'), (req, res) => {
 });
 
 // Delete a thread (admin only)
-app.delete('/api/forum/:id', (req, res) => {
+app.delete('/api/forum/:id', authRequired, adminRequired, (req, res) => {
   const idx = forumThreads.findIndex(t => t.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Thread not found' });
   forumThreads.splice(idx, 1);
@@ -425,7 +558,7 @@ app.delete('/api/forum/:id', (req, res) => {
 });
 
 // Toggle archive for a thread (admin only)
-app.post('/api/forum/:id/archive', (req, res) => {
+app.post('/api/forum/:id/archive', authRequired, adminRequired, (req, res) => {
   const thread = forumThreads.find(t => t.id === req.params.id);
   if (!thread) return res.status(404).json({ error: 'Thread not found' });
   thread.archived = !thread.archived;
@@ -433,7 +566,7 @@ app.post('/api/forum/:id/archive', (req, res) => {
 });
 
 // Delete a comment (admin only)
-app.delete('/api/forum/:threadId/comments/:commentId', (req, res) => {
+app.delete('/api/forum/:threadId/comments/:commentId', authRequired, adminRequired, (req, res) => {
   const thread = forumThreads.find(t => t.id === req.params.threadId);
   if (!thread) return res.status(404).json({ error: 'Thread not found' });
   const idx = thread.comments.findIndex(c => c.id === req.params.commentId);
@@ -516,12 +649,12 @@ app.get('/api/checkStudent', (req, res) => {
 });
 
 // Get list of pending student registrations (admin only)
-app.get('/api/students/pending', (req, res) => {
+app.get('/api/students/pending', authRequired, adminRequired, (req, res) => {
   res.json(pendingStudents);
 });
 
 // Approve a pending student by id (admin only)
-app.post('/api/students/:id/approve', (req, res) => {
+app.post('/api/students/:id/approve', authRequired, adminRequired, (req, res) => {
   const id = req.params.id;
   const idx = pendingStudents.findIndex((s) => s.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Pending student not found' });
@@ -529,39 +662,59 @@ app.post('/api/students/:id/approve', (req, res) => {
   // Add to approved students with muted flag default false
   const newStudent = { id: stu.id, name: stu.name, email: stu.email, studentId: stu.studentId, studentNameZh: stu.studentNameZh, muted: false };
   students.push(newStudent);
+  // Update corresponding user record if exists
+  const user = users.find((u) => u.email === stu.email);
+  if (user) {
+    user.approved = true;
+    user.studentId = stu.studentId;
+    user.studentNameZh = stu.studentNameZh;
+  }
   // Notify student of approval
   sendEmail(stu.email, 'Registration approved', `Dear ${stu.name},\n\nYour account has been approved by the administrator. You can now log in to the course portal.`);
   res.json({ message: 'Student approved', student: newStudent });
 });
 
 // Reject a pending student by id (admin only)
-app.post('/api/students/:id/reject', (req, res) => {
+app.post('/api/students/:id/reject', authRequired, adminRequired, (req, res) => {
   const id = req.params.id;
   const idx = pendingStudents.findIndex((s) => s.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Pending student not found' });
   const stu = pendingStudents.splice(idx, 1)[0];
+  // Remove corresponding user record if exists
+  const uIdx = users.findIndex((u) => u.email === stu.email);
+  if (uIdx !== -1) users.splice(uIdx, 1);
   // Notify student of rejection
   sendEmail(stu.email, 'Registration rejected', `Dear ${stu.name},\n\nYour registration has been rejected by the administrator.`);
   res.json({ message: 'Student registration rejected' });
 });
 
 // Mute (ban) a student by studentId (admin only). Muted students cannot post or submit.
-app.post('/api/students/:studentId/mute', (req, res) => {
+app.post('/api/students/:studentId/mute', authRequired, adminRequired, (req, res) => {
   const studentId = req.params.studentId;
   const stu = students.find((s) => s.studentId === studentId);
   if (!stu) return res.status(404).json({ error: 'Student not found' });
   stu.muted = true;
+  // Update user record if exists
+  const user = users.find((u) => u.email === stu.email);
+  if (user) {
+    user.muted = true;
+  }
   sendEmail(stu.email, 'Account muted', `Dear ${stu.name},\n\nYour account has been muted by the administrator. You will not be able to post or submit assignments until this restriction is lifted.`);
   createNotification(stu.email, 'Your account has been muted');
   res.json({ message: 'Student muted' });
 });
 
 // Unmute a student by studentId (admin only)
-app.post('/api/students/:studentId/unmute', (req, res) => {
+app.post('/api/students/:studentId/unmute', authRequired, adminRequired, (req, res) => {
   const studentId = req.params.studentId;
   const stu = students.find((s) => s.studentId === studentId);
   if (!stu) return res.status(404).json({ error: 'Student not found' });
   stu.muted = false;
+  // Update user record if exists
+  const user = users.find((u) => u.email === stu.email);
+  if (user) {
+    user.muted = false;
+  }
   sendEmail(stu.email, 'Account unmuted', `Dear ${stu.name},\n\nYour account has been unmuted by the administrator. You may now post and submit assignments again.`);
   createNotification(stu.email, 'Your account has been unmuted');
   res.json({ message: 'Student unmuted' });
@@ -632,6 +785,37 @@ app.put('/api/messages/:id/read', (req, res) => {
   if (!msg) return res.status(404).json({ error: 'Message not found' });
   msg.read = true;
   res.json({ success: true });
+});
+
+/**
+ * Export grades as a CSV. Requires authentication and admin privileges. The CSV
+ * includes assignment ID, assignment title, student name, Chinese name,
+ * student ID, student email, upload date, graded flag, grade, comments and
+ * a feedback URL if available.
+ */
+app.get('/api/export/grades', authRequired, adminRequired, (req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="grades.csv"');
+  const header = ['assignmentId','assignmentTitle','studentName','studentNameZh','studentId','studentEmail','uploadedAt','graded','grade','comments','feedbackUrl'];
+  res.write(header.join(',') + '\n');
+  submissions.forEach(sub => {
+    const assign = assignments.find(a => a.id === sub.assignmentId) || {};
+    const row = [
+      sub.assignmentId,
+      (assign.title || '').replace(/,/g, ' '),
+      (sub.studentName || '').replace(/,/g, ' '),
+      (sub.studentNameZh || '').replace(/,/g, ' '),
+      sub.studentID || '',
+      sub.studentEmail || '',
+      sub.uploadedAt || '',
+      sub.graded ? 'yes' : 'no',
+      sub.grade != null ? sub.grade : '',
+      (sub.comments || '').replace(/\r?\n/g, ' ').replace(/,/g, ' '),
+      sub.feedbackPath ? (req.protocol + '://' + req.get('host') + '/' + path.relative(path.join(__dirname, '..'), sub.feedbackPath).replace(/\\/g, '/')) : ''
+    ];
+    res.write(row.join(',') + '\n');
+  });
+  res.end();
 });
 
 // Catch‑all route to serve index.html for SPA

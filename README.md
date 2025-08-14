@@ -12,17 +12,17 @@ This repository contains a dynamic web portal for the **Foundations of Algebra**
 
 - **Exam Notifications** – Upcoming assessments can be added with a title, date/time and description.  They appear on the exams page and notify all students.
 
-- **Enhanced Registration & Permissions** – Students must register with their name, email, student ID and Chinese name.  Registrations require **administrator approval**; pending students can browse the site but cannot post or submit assignments.  Teaching assistants register via an invitation code configurable in the admin panel.
+**Enhanced Registration & Permissions** – Users create accounts with a **password**.  Students must provide their name, email, student ID and Chinese name.  Registrations require **administrator approval**; pending students can browse the site but cannot post or submit assignments.  Teaching assistants register via a configurable invitation code (`TA2025` by default).  Passwords are hashed on the server using bcrypt and a JWT token is issued upon successful login.  The token must accompany protected API requests.
 
 - **Discussion Forum** – Users can start discussion threads and post comments with Markdown/LaTeX formatting and optional file attachments.  Each thread opens in its own page showing the original post, attachments and chronological comments.  Teaching assistants are labelled with a “TA” badge and can archive or delete threads/comments.  Administrators can also **mute** students by student ID, preventing them from posting or submitting until unmuted.
 
-- **Grade Dashboard** – A dedicated **Scores** page displays the average grade and number of graded submissions for each assignment.  Students can compare their performance to the class average; administrators see the same table for high‑level insight.
+- **Grades & Statistics** – A dedicated **Scores** page presents each assignment in a card with a progress bar showing the average grade and the number of graded submissions.  Students can quickly gauge how they compare to the class, while administrators see the same dashboard for high‑level insight.
 
-- **Private Messaging** – Users can send private messages to any email address.  The **Messages** page lists incoming messages, allows reading and marking them as read, and includes a composer for new messages.  The recipient receives an email and an in‑app notification.
+- **Private Messaging** – Users can send private messages to any email address.  The **Messages** page has been redesigned as a chat interface: conversations appear in a sidebar, unread counts are indicated with badges, and selecting a conversation opens a chat window with coloured bubbles for sent and received messages.  Sending a new message automatically refreshes the conversation.  The recipient receives an email and an in‑app notification.
 
-- **Notifications** – Important actions (submissions, grades posted, new announcements, exam notices, new messages) generate both an email and an in‑app notification.  A bell icon with a label shows the number of unread notifications; clicking it reveals the notification panel.
+- **Notifications** – Important actions (submissions, grades posted, new announcements, exam notices, new messages) generate both an email and an in‑app notification.  A bell icon with a "Notifications" label shows the number of unread notifications.  Clicking the bell reveals a quick panel, and the main **Notifications** page lists all messages with timestamps and read status.
 
-- **Administration Panel** – All management tasks live on a single page: editing course information, publishing announcements, creating assignments/exams/resources, moderating discussions, reviewing grade statistics, adjusting the TA invitation code, approving or rejecting pending student registrations, and muting/unmuting students.
+- **Administration Panel** – Management tasks are organised into separate tabs (Course Info, Announcements, Assignments, Resources, Exams, Discussions and Students) instead of a single long page.  Administrators can edit course information, publish announcements, create assignments/exams/resources, moderate discussions, review grade statistics, adjust the TA invitation code, approve or reject pending student registrations, and mute or unmute students.
 
 - **Apple‑Inspired Design** – The front end uses system fonts, light colours, translucent panels and rounded cards to echo Apple’s design language.  The interface scales gracefully from desktop to mobile screens.
 
