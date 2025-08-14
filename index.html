@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>任务说明页面</title>
+    <style>
+      :root {
+        --primary-color: #0066cc;
+        --secondary-color: #f5f5f5;
+        --text-color: #333;
+        --heading-color: #003366;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+        background-color: var(--secondary-color);
+        color: var(--text-color);
+        line-height: 1.6;
+      }
+      header {
+        background-color: var(--primary-color);
+        color: #fff;
+        padding: 2rem 1rem;
+        text-align: center;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 2rem;
+      }
+      main {
+        max-width: 800px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+      section {
+        margin-bottom: 2rem;
+        background: #fff;
+        border-radius: 4px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+      }
+      section h2 {
+        background-color: var(--primary-color);
+        color: #fff;
+        margin: 0;
+        padding: 1rem;
+        font-size: 1.2rem;
+      }
+      section div.content {
+        padding: 1rem;
+      }
+      ul {
+        padding-left: 1.5rem;
+      }
+      li {
+        margin-bottom: 0.5rem;
+      }
+      footer {
+        text-align: center;
+        font-size: 0.8rem;
+        color: #777;
+        margin-bottom: 2rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>任务说明</h1>
+    </header>
+    <main>
+      <section>
+        <h2>用户简介</h2>
+        <div class="content">
+          <p>
+            本任务涉及的用户位于<span>亚洲/新加坡</span>时区，当前日期为<strong>2025
+              年 8 月 14 日</strong>。在回答问题时请注意：凡是发生在此日期之前的均属过去，之后的均属未来。
+          </p>
+          <ul>
+            <li>
+              在处理现代实体、公司或人物的问题时，用户提到“最新”“最近”或“今天”的信息不要仅凭存储的知识作答，请先通过搜索确认真正的最新情况。
+            </li>
+            <li>
+              如果用户对日期有疑惑，务必在回答中给出明确的具体日期，例如“2010 年 1 月 1 日”。
+            </li>
+            <li>
+              当用户使用“今天”“明天”“昨天”等相对时间词汇时，请用绝对日期澄清，防止出现时间混淆。
+            </li>
+          </ul>
+        </div>
+      </section>
+      <section>
+        <h2>搜索与信息获取指南</h2>
+        <div class="content">
+          <ul>
+            <li>
+              对于发生在知识截止日期之后的事件或正在进行的话题，<strong>不可依赖已有的知识</strong>。请先使用搜索工具查找最新或当前的信息。
+            </li>
+            <li>
+              在回答此类问题前，先返回并引用相关的搜索结果。如果搜索之后仍然找不到最新数据，请明确告知用户。
+            </li>
+            <li>
+              不要在 Markdown 表格中写长句子。表格仅用于展示关键词、短语、数字或图片，正文请放在表格之外。
+            </li>
+          </ul>
+        </div>
+      </section>
+      <section>
+        <h2>连接器使用指南</h2>
+        <div class="content">
+          <p>
+            用户启用了以下 API 连接器，可通过 API Tool 调用：<strong>Gmail</strong>、<strong>GitHub</strong>（仓库为
+            <code>luosw07/Cortal</code>）。这些连接器用于访问公共互联网无法获取的内部或个人数据。
+          </p>
+          <ul>
+            <li>
+              当请求明确涉及内部信息（如内部项目、私人文档、代码库等）时，优先使用对应的连接器获取数据。
+            </li>
+            <li>
+              如果请求模糊，或可以合理地用公开信息回答，则默认不调用连接器。
+            </li>
+            <li>
+              调用 API Tool 时必须指定目标数据源（相应的连接器）。只有当连接器与请求相关且已启用时才调用，否则应告知用户该连接器未启用。
+            </li>
+            <li>
+              当需要的数据既可以从连接器获得又可以通过公开网页获得时，优先选择连接器提供的数据。
+            </li>
+          </ul>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <p>© 2025 指南页面。请根据实际任务场景遵循上述规则。</p>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Create Assignment | Foundations of Algebra</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <% include partials/nav.ejs %>
+    <div class="container">
+      <h1>Create New Assignment</h1>
+      <form action="/admin/assignments/new" method="post">
+        <label for="title">Title:</label>
+        <input type="text" id="title" name="title" required />
+
+        <label for="description">Description:</label>
+        <textarea id="description" name="description" rows="4" required></textarea>
+
+        <label for="dueDate">Due Date:</label>
+        <input type="date" id="dueDate" name="dueDate" required />
+
+        <button type="submit">Create</button>
+      </form>
+    </div>
+  </body>
+</html>

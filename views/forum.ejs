@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Forum | Foundations of Algebra</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <% include partials/nav.ejs %>
+    <div class="container">
+      <h1>Forum</h1>
+      <% posts.forEach(function(post) { %>
+      <div class="post">
+        <h3><%= post.title %></h3>
+        <div class="post-meta">By <%= post.author %> on <%= post.createdAt.toDateString() %></div>
+        <p><%= post.body %></p>
+      </div>
+      <% }) %>
+      <% if (!posts.length) { %>
+      <p>No posts yet.</p>
+      <% } %>
+
+      <% if (user) { %>
+      <h2>Start a discussion</h2>
+      <form action="/forum/new" method="post">
+        <label for="title">Title:</label>
+        <input type="text" id="title" name="title" required />
+        <label for="body">Body:</label>
+        <textarea id="body" name="body" rows="4" required></textarea>
+        <button type="submit">Post</button>
+      </form>
+      <% } else { %>
+      <p>Please <a href="/login" class="link-button">log in</a> to start a discussion.</p>
+      <% } %>
+    </div>
+  </body>
+</html>

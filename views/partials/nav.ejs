@@ -1,0 +1,18 @@
+<nav class="navbar">
+  <div class="nav-brand"><a href="/">Foundations of Algebra</a></div>
+  <ul class="nav-links">
+    <li><a href="/">Home</a></li>
+    <li><a href="/assignments">Assignments</a></li>
+    <li><a href="/resources">Resources</a></li>
+    <li><a href="/exams">Exams</a></li>
+    <li><a href="/forum">Forum</a></li>
+  </ul>
+  <div class="nav-user">
+    <% if (user) { %>
+    <span class="user-name"><%= user.name %></span>
+    <a href="/logout" class="button small">Logout</a>
+    <% } else { %>
+    <a href="/login" class="button small">Login</a>
+    <% } %>
+  </div>
+</nav>

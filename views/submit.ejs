@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Submit Assignment | Foundations of Algebra</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <% include partials/nav.ejs %>
+    <div class="container">
+      <h1>Submit <%= assignment.title %></h1>
+      <p><strong>Due:</strong> <%= assignment.dueDate %></p>
+      <p><%= assignment.description %></p>
+      <form action="/assignments/<%= assignment.id %>/submit" method="post" enctype="multipart/form-data">
+        <label for="pdf">Upload PDF:</label>
+        <input type="file" id="pdf" name="pdf" accept="application/pdf" required />
+        <button type="submit">Submit</button>
+      </form>
+    </div>
+  </body>
+</html>
