@@ -23,24 +23,22 @@
         <button data-section="discussions">Discussion</button>
         <button data-section="resources">Resources</button>
         <button data-section="exams">Exams</button>
-        <button data-section="scores">Scores</button>
-        <button data-section="messages">Messages</button>
-        <button data-section="notifications">Notifications</button>
+        <!-- Removed Scores button as grade statistics page is deprecated -->
+        <!-- Messages and Notifications nav buttons removed: notifications accessed via bell icon -->
         <button data-section="admin" id="adminNav" style="display: none">Admin</button>
       </nav>
       <!-- Notifications bell and user info -->
       <div class="header-right">
         <div class="notifications" id="notificationsBell" style="display:none; position:relative; cursor:pointer; margin-right:1rem;">
+          <!-- Only show the bell icon and badge; remove text label to avoid duplication with Notifications page -->
           <i class="fa-solid fa-bell"></i>
-          <span class="notif-label" style="margin-left:0.25rem; font-size:0.85rem;">Notifications</span>
           <span id="notificationCount" class="badge" style="position:absolute; top:-6px; right:-6px; background-color:#ff3b30; color:#fff; border-radius:50%; padding:2px 4px; font-size:0.65rem; display:none;"></span>
         </div>
         <div class="user-info" id="userInfo"></div>
       </div>
     </header>
 
-    <!-- Notification panel (hidden by default) -->
-    <div id="notificationPanel" class="notification-panel hidden"></div>
+    <!-- Notification panel removed; notifications are viewed on dedicated page -->
 
     <!-- Login Modal / Form (hidden until invoked) -->
     <!-- Login Section -->
@@ -54,6 +52,8 @@
         <button type="submit" class="btn-blue">Login</button>
       </form>
       <p style="margin-top:0.5rem; font-size:0.85rem;">Don’t have an account? <a href="#" id="showRegisterLink">Register here</a></p>
+      <p style="margin-top:0.5rem; font-size:0.85rem;">Forgot your password? <a href="#" id="showResetRequestLink">Request a reset</a></p>
+      <p style="margin-top:0.5rem; font-size:0.85rem;">Have an approved reset? <a href="#" id="showResetLink">Reset now</a></p>
     </section>
 
     <!-- Registration Section -->
@@ -86,6 +86,30 @@
       <p style="margin-top:0.5rem; font-size:0.85rem;">Already have an account? <a href="#" id="showLoginLink">Back to Login</a></p>
     </section>
 
+    <!-- Request Password Reset Section -->
+    <section id="reset-request-section" class="page hidden">
+      <h2>Forgot Password</h2>
+      <form id="resetRequestForm" class="form">
+        <label for="resetRequestEmail">Enter your email</label>
+        <input type="email" id="resetRequestEmail" required />
+        <button type="submit" class="btn-blue">Request Reset</button>
+      </form>
+      <p style="margin-top:0.5rem; font-size:0.85rem;">Remembered your password? <a href="#" id="backToLoginFromResetRequest">Back to Login</a></p>
+    </section>
+
+    <!-- Reset Password Section -->
+    <section id="reset-password-section" class="page hidden">
+      <h2>Reset Password</h2>
+      <form id="resetPasswordForm" class="form">
+        <label for="resetPasswordEmail">Email</label>
+        <input type="email" id="resetPasswordEmail" required />
+        <label for="newPassword">New Password</label>
+        <input type="password" id="newPassword" required />
+        <button type="submit" class="btn-blue">Reset Password</button>
+      </form>
+      <p style="margin-top:0.5rem; font-size:0.85rem;">Back to login? <a href="#" id="backToLoginFromReset">Back to Login</a></p>
+    </section>
+
 
     <!-- Home Section -->
     <section id="home-section" class="page hidden">
@@ -103,7 +127,7 @@
             <input type="text" id="announcementTitle" required />
             <label for="announcementContent">Content</label>
             <textarea id="announcementContent" rows="3" required></textarea>
-            <button type="submit" class="primary-btn">Post Announcement</button>
+            <button type="submit" class="btn-blue">Post Announcement</button>
           </form>
         </div>
       </div>
@@ -136,7 +160,7 @@
           <input type="file" id="newAssignmentFile" accept="application/pdf" required />
           <label for="newAssignmentDue">Due Date</label>
           <input type="datetime-local" id="newAssignmentDue" required />
-          <button type="submit" class="primary-btn">Create Assignment</button>
+          <button type="submit" class="btn-blue">Create Assignment</button>
         </form>
       </div>
     </section>
@@ -164,7 +188,7 @@
           <input type="text" id="resourceTitle" required />
           <label for="resourceFile">File (PDF or other)</label>
           <input type="file" id="resourceFile" accept="application/pdf,application/zip,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required />
-          <button type="submit" class="primary-btn">Upload</button>
+          <button type="submit" class="btn-blue">Upload</button>
         </form>
       </div>
     </section>
@@ -182,7 +206,7 @@
           <input type="datetime-local" id="examDate" required />
           <label for="examDescription">Description</label>
           <textarea id="examDescription" rows="3" required></textarea>
-          <button type="submit" class="primary-btn">Create Exam</button>
+          <button type="submit" class="btn-blue">Create Exam</button>
         </form>
       </div>
     </section>
@@ -198,17 +222,10 @@
         <button data-admin-section="exams">Exams</button>
         <button data-admin-section="discussions">Discussions</button>
         <button data-admin-section="students">Students</button>
+        <button data-admin-section="taCode">TA Code</button>
+        <button data-admin-section="resets">Password Resets</button>
       </div>
-      <!-- TA Invitation Code Setting (always visible for admins) -->
-      <div id="inviteCodeSetting" style="margin-top:1rem;">
-        <h3>TA Invitation Code</h3>
-        <p>Current code: <span id="currentTaCode"></span></p>
-        <form id="inviteCodeForm" class="form" style="max-width:300px;">
-          <label for="taCodeInput">Set New Code</label>
-          <input type="text" id="taCodeInput" required />
-          <button type="submit" class="btn-blue">Update Code</button>
-        </form>
-      </div>
+      <!-- TA Invitation Code section moved to its own admin tab -->
       <!-- Admin subsections (hidden by default) -->
       <div id="admin-info" class="admin-subsection hidden">
         <h3>Edit Course Information</h3>
@@ -286,6 +303,23 @@
           <button id="exportGradesBtn" type="button" class="btn-blue">Export Grades (CSV)</button>
         </div>
       </div>
+
+      <!-- TA Code subsection -->
+      <div id="admin-taCode" class="admin-subsection hidden">
+        <h3>TA Invitation Code</h3>
+        <p>Current code: <span id="currentTaCode"></span></p>
+        <form id="inviteCodeForm" class="form" style="max-width:300px;">
+          <label for="taCodeInput">Set New Code</label>
+          <input type="text" id="taCodeInput" required />
+          <button type="submit" class="btn-blue">Update Code</button>
+        </form>
+      </div>
+
+      <!-- Password Reset Requests subsection -->
+      <div id="admin-resets" class="admin-subsection hidden">
+        <h3>Password Reset Requests</h3>
+        <div id="resetRequestsList"></div>
+      </div>
     </section>
 
     <!-- Discussions Section -->
@@ -301,7 +335,7 @@
           <textarea id="threadContent" rows="4" required></textarea>
           <label for="threadFile">Attachment (optional)</label>
           <input type="file" id="threadFile" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.*,.png,.jpg,.jpeg" />
-          <button type="submit" class="primary-btn">Post Thread</button>
+          <button type="submit" class="btn-blue">Post Thread</button>
         </form>
       </div>
     </section>
@@ -321,11 +355,7 @@
       <div id="assignmentPageContent"></div>
     </section>
 
-    <!-- Scores Section: shows grade statistics and student dashboard -->
-    <section id="scores-section" class="page hidden">
-      <h2>Grades &amp; Statistics</h2>
-      <div id="scoresContent"></div>
-    </section>
+    <!-- Scores Section removed as per new requirements (grade statistics page canceled) -->
 
     <!-- Notifications Section: list all notifications with details -->
     <section id="notifications-section" class="page hidden">
@@ -333,29 +363,7 @@
       <div id="notificationsList"></div>
     </section>
 
-    <!-- Messages Section: chat style interface -->
-    <section id="messages-section" class="page hidden">
-      <h2>Private Messages</h2>
-      <div class="chat-container">
-        <div class="chat-sidebar">
-          <h4>Conversations</h4>
-          <div id="conversationList"></div>
-          <form id="startConversationForm" class="form" style="margin-top:1rem;">
-            <label for="newConversationEmail">Start new chat</label>
-            <input type="email" id="newConversationEmail" placeholder="Enter email..." required />
-            <button type="submit" class="btn-blue">Start</button>
-          </form>
-        </div>
-        <div class="chat-main">
-          <div id="chatHeader" class="chat-header"></div>
-          <div id="chatMessages" class="chat-messages"></div>
-          <form id="chatInputForm" class="chat-input form">
-            <textarea id="chatInput" rows="2" placeholder="Type a message..."></textarea>
-            <button type="submit" class="btn-blue">Send</button>
-          </form>
-        </div>
-      </div>
-    </section>
+    <!-- Messages section removed as private messaging has been disabled -->
 
     <!-- Include marked for Markdown parsing -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>

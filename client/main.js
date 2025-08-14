@@ -70,16 +70,10 @@ document.addEventListener('DOMContentLoaded', () => {
         loadAnnouncements();
         loadHomeAssignments();
         loadHomeThreads();
-      } else if (section === 'scores') {
-        loadScores();
-      } else if (section === 'messages') {
-        loadMessages();
       } else if (section === 'admin') {
         loadAdminThreads();
         loadPendingStudents();
         loadStudentList();
-      } else if (section === 'notifications') {
-        loadNotificationDetails();
       }
     });
   });
@@ -436,6 +430,11 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       document.getElementById('login-section').classList.add('hidden');
       document.getElementById('register-section').classList.remove('hidden');
+      // Hide any reset sections when showing register
+      const reqSec = document.getElementById('reset-request-section');
+      const resetSec = document.getElementById('reset-password-section');
+      if (reqSec) reqSec.classList.add('hidden');
+      if (resetSec) resetSec.classList.add('hidden');
     });
   }
   const showLoginLink = document.getElementById('showLoginLink');
@@ -444,6 +443,51 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       document.getElementById('register-section').classList.add('hidden');
       document.getElementById('login-section').classList.remove('hidden');
+      // Hide reset sections when showing login
+      const reqSec = document.getElementById('reset-request-section');
+      const resetSec = document.getElementById('reset-password-section');
+      if (reqSec) reqSec.classList.add('hidden');
+      if (resetSec) resetSec.classList.add('hidden');
+    });
+  }
+
+  // Forgot password / reset navigation
+  const showResetRequestLink = document.getElementById('showResetRequestLink');
+  if (showResetRequestLink) {
+    showResetRequestLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      // Navigate exclusively to the reset request page. This hides other pages
+      // including login/register and home. We clear nav highlight.
+      showSection('reset-request-section');
+      setActiveNav(null);
+    });
+  }
+  const showResetLink = document.getElementById('showResetLink');
+  if (showResetLink) {
+    showResetLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      // Navigate exclusively to the reset password form page
+      showSection('reset-password-section');
+      setActiveNav(null);
+    });
+  }
+  // Back links for reset pages
+  const backReq = document.getElementById('backToLoginFromResetRequest');
+  if (backReq) {
+    backReq.addEventListener('click', (e) => {
+      e.preventDefault();
+      // Navigate back to the login page exclusively
+      showSection('login-section');
+      setActiveNav(null);
+    });
+  }
+  const backReset = document.getElementById('backToLoginFromReset');
+  if (backReset) {
+    backReset.addEventListener('click', (e) => {
+      e.preventDefault();
+      // Navigate back to the login page exclusively
+      showSection('login-section');
+      setActiveNav(null);
     });
   }
 
@@ -488,6 +532,69 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (err) {
         console.error('Registration error', err);
         alert('An error occurred during registration');
+      }
+    });
+  }
+
+  // Password reset request form
+  const resetRequestForm = document.getElementById('resetRequestForm');
+  if (resetRequestForm) {
+    resetRequestForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('resetRequestEmail').value.trim();
+      if (!email) {
+        alert('Please enter your email');
+        return;
+      }
+      try {
+        const resp = await fetch('/api/auth/requestReset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          alert('Reset request submitted. Please wait for admin approval.');
+          resetRequestForm.reset();
+        } else {
+          alert(data.error || 'Failed to request password reset');
+        }
+      } catch (err) {
+        console.error('Password reset request error', err);
+        alert('Request failed');
+      }
+    });
+  }
+
+  // Password reset form (after approval)
+  const resetPasswordForm = document.getElementById('resetPasswordForm');
+  if (resetPasswordForm) {
+    resetPasswordForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('resetPasswordEmail').value.trim();
+      const newPass = document.getElementById('newPassword').value;
+      if (!email || !newPass) {
+        alert('Please enter your email and new password');
+        return;
+      }
+      try {
+        const resp = await fetch('/api/auth/resetPassword', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, newPassword: newPass }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          alert('Password reset successfully. Please log in with your new password.');
+          // Redirect to login page
+          document.getElementById('reset-password-section').classList.add('hidden');
+          document.getElementById('login-section').classList.remove('hidden');
+        } else {
+          alert(data.error || 'Failed to reset password');
+        }
+      } catch (err) {
+        console.error('Reset password error', err);
+        alert('Reset failed');
       }
     });
   }
@@ -542,6 +649,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const activeSec = document.getElementById('admin-' + target);
         if (activeSec) {
           activeSec.classList.remove('hidden');
+        }
+        // Load specific admin data when navigating
+        if (target === 'resets') {
+          loadResetRequests();
+        } else if (target === 'taCode') {
+          loadTaCode();
+        } else if (target === 'discussions') {
+          loadAdminThreads();
+        } else if (target === 'students') {
+          loadPendingStudents();
+          loadStudentList();
         }
       });
     });
@@ -601,12 +719,8 @@ function initForLoggedInUser() {
   // Show admin navigation if user is admin
   if (currentUser.role === 'admin') {
     document.getElementById('adminNav').style.display = 'inline-block';
-    // Update invitation code display
-    const code = localStorage.getItem('taInvitationCode') || 'TA2025';
-    const codeEl = document.getElementById('currentTaCode');
-    if (codeEl) {
-      codeEl.textContent = code;
-    }
+    // Load current TA code from server and update display
+    loadTaCode();
     // Populate admin lists
     loadAdminThreads();
     loadPendingStudents();
@@ -636,8 +750,7 @@ function initForLoggedInUser() {
   loadHomeThreads();
   loadHomeAssignments();
   loadNotifications();
-  loadScores();
-  loadMessages();
+  // Scores page and private messages have been removed
 }
 
 function initForGuest() {
@@ -646,6 +759,11 @@ function initForGuest() {
   const registerSec = document.getElementById('register-section');
   if (loginSec) loginSec.classList.add('hidden');
   if (registerSec) registerSec.classList.add('hidden');
+  // Hide reset request and reset password sections
+  const reqSec = document.getElementById('reset-request-section');
+  const resetSec = document.getElementById('reset-password-section');
+  if (reqSec) reqSec.classList.add('hidden');
+  if (resetSec) resetSec.classList.add('hidden');
   // Show navigation
   $('header.navbar').style.display = 'flex';
   // Set user info with login and register links
@@ -656,17 +774,22 @@ function initForGuest() {
   // Hide thread creation container
   const newThread = document.getElementById('newThreadContainer');
   if (newThread) newThread.classList.add('hidden');
-  // Attach login link to show login page
+  // Attach login link to show login page exclusively. When clicked we
+  // navigate to the login section via showSection() so that only the
+  // login form is visible and the underlying home page is hidden. We
+  // also clear any active nav highlighting.
   document.getElementById('loginLink').addEventListener('click', (e) => {
     e.preventDefault();
-    if (loginSec) loginSec.classList.remove('hidden');
-    if (registerSec) registerSec.classList.add('hidden');
+    showSection('login-section');
+    setActiveNav(null);
   });
-  // Attach register link to show register page
+  // Attach register link to show register page exclusively. Using
+  // showSection() hides the home page so the register form isn't
+  // displayed over other content.
   document.getElementById('registerLink').addEventListener('click', (e) => {
     e.preventDefault();
-    if (registerSec) registerSec.classList.remove('hidden');
-    if (loginSec) loginSec.classList.add('hidden');
+    showSection('register-section');
+    setActiveNav(null);
   });
   // Load content for guest view
   showSection('home-section');
@@ -893,8 +1016,8 @@ async function loadNotificationDetails() {
 async function loadNotifications() {
   const bell = document.getElementById('notificationsBell');
   const countSpan = document.getElementById('notificationCount');
-  const panel = document.getElementById('notificationPanel');
-  if (!bell || !countSpan || !panel) return;
+  // We no longer use the dropdown panel; notifications are viewed via the notifications page
+  if (!bell || !countSpan) return;
   if (!currentUser) {
     bell.style.display = 'none';
     return;
@@ -912,32 +1035,13 @@ async function loadNotifications() {
     } else {
       countSpan.style.display = 'none';
     }
-    // Populate panel
-    panel.innerHTML = '';
-    if (!notes.length) {
-      const p = document.createElement('p');
-      p.textContent = 'No notifications.';
-      p.style.fontSize = '0.85rem';
-      panel.appendChild(p);
-    } else {
-      notes.sort((a, b) => new Date(b.date) - new Date(a.date));
-      notes.forEach((n) => {
-        const item = document.createElement('div');
-        item.className = 'notification-item';
-        if (!n.read) item.style.fontWeight = '600';
-        item.innerHTML = `<div>${n.message}</div><div style="font-size:0.7rem;color:#6e6e73;">${new Date(n.date).toLocaleString()}</div>`;
-        item.addEventListener('click', async () => {
-          // Mark as read
-          await fetch(`/api/notifications/${n.id}/read`, { method: 'PUT' });
-          item.style.fontWeight = 'normal';
-          loadNotifications();
-        });
-        panel.appendChild(item);
-      });
-    }
-    // Toggle panel on bell click
+    // No drop‑down: clicking the bell will navigate to the notifications page
     bell.onclick = () => {
-      panel.classList.toggle('hidden');
+      // Navigate to notifications page. There is no separate nav button for notifications.
+      showSection('notifications-section');
+      // Do not highlight any nav button when viewing notifications
+      setActiveNav(null);
+      loadNotificationDetails();
     };
   } catch (err) {
     console.error('Failed to load notifications', err);
@@ -966,7 +1070,7 @@ async function openThreadPage(threadId) {
     // Back link
     const backBtn = document.createElement('button');
     backBtn.textContent = '← Back to discussions';
-    backBtn.className = 'secondary-btn';
+    backBtn.className = 'btn-blue';
     backBtn.style.marginBottom = '1rem';
     backBtn.addEventListener('click', () => {
       showSection('discussions-section');
@@ -1135,7 +1239,7 @@ async function openThreadPage(threadId) {
       fileInput.style.marginTop = '0.5rem';
       const submit = document.createElement('button');
       submit.textContent = 'Post Comment';
-      submit.className = 'primary-btn';
+      submit.className = 'btn-blue';
       submit.style.marginTop = '0.5rem';
       submit.addEventListener('click', async () => {
         const contentVal = textarea.value.trim();
@@ -1232,7 +1336,7 @@ async function openAssignmentPage(assn) {
   // Back link
   const backBtn = document.createElement('button');
   backBtn.textContent = '← Back to assignments';
-  backBtn.className = 'secondary-btn';
+  backBtn.className = 'btn-blue';
   backBtn.style.marginBottom = '1rem';
   backBtn.addEventListener('click', () => {
     showSection('assignments-section');
@@ -1421,7 +1525,7 @@ async function openAssignmentPage(assn) {
         }
       });
       const submitBtn = document.createElement('button');
-      submitBtn.className = 'primary-btn';
+      submitBtn.className = 'btn-blue';
       submitBtn.textContent = mySub ? 'Replace' : 'Submit';
       submitBtn.addEventListener('click', async () => {
         if (!fileInput.files.length) {
@@ -1473,7 +1577,7 @@ async function openAssignmentPage(assn) {
   // Admin: show grade submissions list via button
   if (currentUser && currentUser.role === 'admin') {
     const gradeBtn = document.createElement('button');
-    gradeBtn.className = 'primary-btn';
+    gradeBtn.className = 'btn-blue';
     gradeBtn.style.marginTop = '1rem';
     gradeBtn.textContent = 'Grade Submissions';
     gradeBtn.addEventListener('click', () => openGradeModal(assn));
@@ -1637,7 +1741,7 @@ async function loadAssignments() {
             }
           });
           const submitBtn = document.createElement('button');
-          submitBtn.className = 'primary-btn';
+      submitBtn.className = 'btn-blue';
           submitBtn.textContent = mySub ? 'Replace' : 'Submit';
           submitBtn.addEventListener('click', async () => {
             if (!fileInput.files.length) {
@@ -1859,16 +1963,38 @@ async function loadMessages() {
       if (!conversations[partner]) conversations[partner] = [];
       conversations[partner].push(m);
     });
+    // Determine list of conversation partners
+    let partners = [];
+    let admins = [];
+    if (currentUser.role === 'admin') {
+      partners = Object.keys(conversations);
+    } else {
+      // Students: show only admin accounts. Fetch admin list
+      try {
+        const ra = await fetchAuth('/api/admins');
+        if (ra.ok) admins = await ra.json();
+      } catch (err) {
+        console.error('Failed to fetch admin list', err);
+      }
+      partners = admins.map((adm) => adm.email);
+    }
     // Render conversation list
     convList.innerHTML = '';
-    const partners = Object.keys(conversations);
     partners.forEach((partner) => {
       const div = document.createElement('div');
       div.className = 'message-item';
-      // Use partner as display; could fetch name if stored
-      div.innerHTML = `<strong>${partner}</strong>`;
+      // Determine display name: if in admins list, use name; else show email
+      let displayName = partner;
+      if (currentUser.role !== 'admin') {
+        const adm = (admins || []).find((a) => a.email === partner);
+        if (adm) displayName = adm.name;
+      } else {
+        // For admin user, attempt to show partner's name from users list? We don't have access; show email
+        displayName = partner;
+      }
+      div.innerHTML = `<strong>${displayName}</strong>`;
       // Unread count
-      const unreadCount = conversations[partner].filter((msg) => msg.toEmail === currentUser.email && !msg.read).length;
+      const unreadCount = (conversations[partner] || []).filter((msg) => msg.toEmail === currentUser.email && !msg.read).length;
       if (unreadCount > 0) {
         const badge = document.createElement('span');
         badge.style.backgroundColor = '#ff3b30';
@@ -1883,24 +2009,33 @@ async function loadMessages() {
       div.style.cursor = 'pointer';
       div.addEventListener('click', () => {
         currentConversation = partner;
-        renderConversation(partner, conversations[partner]);
+        renderConversation(partner, conversations[partner] || []);
       });
       convList.appendChild(div);
     });
-    // If no conversations, show placeholder
+    // Hide or show start conversation form based on role
+    const startForm = document.getElementById('startConversationForm');
+    if (startForm) {
+      if (currentUser.role === 'admin') {
+        startForm.style.display = 'block';
+      } else {
+        startForm.style.display = 'none';
+      }
+    }
+    // If no partners, show placeholder
     if (!partners.length) {
       convList.innerHTML = '<p style="font-size:0.85rem; color:#6e6e73;">No conversations yet.</p>';
       header.textContent = '';
-      messagesDiv.innerHTML = '<p style="padding:0.5rem;color:#6e6e73;">Start a conversation using the form below.</p>';
+      messagesDiv.innerHTML = '<p style="padding:0.5rem;color:#6e6e73;">Select an admin from the list to start chatting.</p>';
       return;
     }
     // Determine current conversation: keep previous selection if exists; else pick first
     let partnerToShow = currentConversation;
-    if (!partnerToShow || !conversations[partnerToShow]) {
+    if (!partnerToShow || partners.indexOf(partnerToShow) === -1) {
       partnerToShow = partners[0];
     }
     currentConversation = partnerToShow;
-    renderConversation(partnerToShow, conversations[partnerToShow]);
+    renderConversation(partnerToShow, conversations[partnerToShow] || []);
   } catch (err) {
     console.error('Failed to load messages', err);
     convList.innerHTML = '<p>Failed to load conversations.</p>';
@@ -2041,6 +2176,81 @@ async function loadStudentList() {
   }
 }
 
+/**
+ * Load pending password reset requests for admin. Populates the admin resets
+ * subsection with a list of emails and approve buttons. Requires admin
+ * authentication.
+ */
+async function loadResetRequests() {
+  const container = document.getElementById('resetRequestsList');
+  if (!container) return;
+  container.innerHTML = '';
+  try {
+    const res = await fetchAuth('/api/admin/resetRequests');
+    if (!res.ok) {
+      throw new Error('Failed to fetch reset requests');
+    }
+    const requests = await res.json();
+    if (!requests.length) {
+      container.innerHTML = '<p style="font-size:0.85rem;color:#6e6e73;">No password reset requests.</p>';
+      return;
+    }
+    requests.forEach((req) => {
+      const div = document.createElement('div');
+      div.className = 'reset-item';
+      div.style.display = 'flex';
+      div.style.justifyContent = 'space-between';
+      div.style.alignItems = 'center';
+      div.style.padding = '0.5rem 0';
+      div.innerHTML = `<span>${req.email}</span>`;
+      const approveBtn = document.createElement('button');
+      approveBtn.textContent = 'Approve';
+      approveBtn.className = 'btn-green';
+      approveBtn.addEventListener('click', async () => {
+        if (!confirm('Approve reset for ' + req.email + '?')) return;
+        try {
+          const r = await fetchAuth('/api/admin/resetRequests/' + encodeURIComponent(req.email) + '/approve', { method: 'POST' });
+          const data = await r.json();
+          if (!r.ok) {
+            alert(data.error || 'Approval failed');
+          } else {
+            alert('Reset approved');
+            loadResetRequests();
+          }
+        } catch (err) {
+          console.error('Approve reset error', err);
+          alert('Failed to approve');
+        }
+      });
+      div.appendChild(approveBtn);
+      container.appendChild(div);
+    });
+  } catch (err) {
+    console.error('Failed to load reset requests', err);
+    container.innerHTML = '<p style="font-size:0.85rem;color:#6e6e73;">Failed to load reset requests.</p>';
+  }
+}
+
+/**
+ * Load the current TA invitation code for admins. Fetches from the server
+ * and updates the display in the TA code subsection.
+ */
+async function loadTaCode() {
+  try {
+    const res = await fetchAuth('/api/taCode');
+    if (!res.ok) {
+      throw new Error('Failed to fetch TA code');
+    }
+    const data = await res.json();
+    const codeEl = document.getElementById('currentTaCode');
+    if (codeEl) {
+      codeEl.textContent = data.code;
+    }
+  } catch (err) {
+    console.error('Failed to load TA code', err);
+  }
+}
+
 async function loadDiscussions() {
   const res = await fetch('/api/forum');
   const threads = await res.json();
@@ -2176,11 +2386,12 @@ async function openThreadModal(threadId) {
       if (currentUser && currentUser.role === 'admin') {
         const delBtn = document.createElement('button');
         delBtn.textContent = 'Delete';
-        delBtn.className = 'small-btn';
+        // Use a red button for delete actions to unify style
+        delBtn.className = 'btn-red';
         delBtn.style.marginLeft = '0.5rem';
         delBtn.addEventListener('click', async () => {
           if (!confirm('Delete this comment?')) return;
-          const resp = await fetch(`/api/forum/${thread.id}/comments/${c.id}`, { method: 'DELETE' });
+          const resp = await fetchAuth(`/api/forum/${thread.id}/comments/${c.id}`, { method: 'DELETE' });
           if (resp.ok) {
             openThreadModal(thread.id);
           } else {
@@ -2204,7 +2415,7 @@ async function openThreadModal(threadId) {
     textarea.style.width = '100%';
     const submit = document.createElement('button');
     submit.textContent = 'Post Comment';
-    submit.className = 'primary-btn';
+    submit.className = 'btn-blue';
     submit.style.marginTop = '0.5rem';
     submit.addEventListener('click', async () => {
       const contentValue = textarea.value.trim();
@@ -2243,7 +2454,7 @@ async function openThreadModal(threadId) {
     const adminActions = document.createElement('div');
     adminActions.style.marginTop = '1rem';
     const archiveBtn = document.createElement('button');
-    archiveBtn.className = 'secondary-btn';
+    archiveBtn.className = 'btn-yellow';
     archiveBtn.textContent = thread.archived ? 'Unarchive Thread' : 'Archive Thread';
     archiveBtn.addEventListener('click', async () => {
       const resp = await fetchAuth(`/api/forum/${thread.id}/archive`, { method: 'POST' });
@@ -2257,7 +2468,7 @@ async function openThreadModal(threadId) {
       }
     });
     const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'secondary-btn';
+    deleteBtn.className = 'btn-red';
     deleteBtn.textContent = 'Delete Thread';
     deleteBtn.style.marginLeft = '0.5rem';
     deleteBtn.addEventListener('click', async () => {
@@ -2305,9 +2516,16 @@ async function loadAdminThreads() {
     info.innerHTML = `<strong>${th.title}</strong> <span style="font-size:0.8rem;color:#6e6e73;">(${new Date(th.date).toLocaleString()})</span> - ${th.commentCount} comments`;
     row.appendChild(info);
     const actions = document.createElement('div');
+    // Open button – blue for navigation
+    const openBtn = document.createElement('button');
+    openBtn.className = 'btn-blue';
+    openBtn.textContent = 'Open';
+    openBtn.addEventListener('click', () => openThreadPage(th.id));
+    // Archive/unarchive button – yellow to indicate caution
     const archive = document.createElement('button');
-    archive.className = 'small-btn';
+    archive.className = 'btn-yellow';
     archive.textContent = th.archived ? 'Unarchive' : 'Archive';
+    archive.style.marginLeft = '0.5rem';
     archive.addEventListener('click', async () => {
       const resp = await fetchAuth(`/api/forum/${th.id}/archive`, { method: 'POST' });
       if (resp.ok) {
@@ -2318,8 +2536,9 @@ async function loadAdminThreads() {
         alert(msg.error || 'Failed');
       }
     });
+    // Delete button – red for destructive action
     const del = document.createElement('button');
-    del.className = 'small-btn';
+    del.className = 'btn-red';
     del.textContent = 'Delete';
     del.style.marginLeft = '0.5rem';
     del.addEventListener('click', async () => {
@@ -2333,11 +2552,6 @@ async function loadAdminThreads() {
         alert(msg.error || 'Failed to delete');
       }
     });
-    const openBtn = document.createElement('button');
-    openBtn.className = 'small-btn';
-    openBtn.textContent = 'Open';
-    openBtn.style.marginLeft = '0.5rem';
-    openBtn.addEventListener('click', () => openThreadPage(th.id));
     actions.appendChild(openBtn);
     actions.appendChild(archive);
     actions.appendChild(del);
@@ -2407,7 +2621,7 @@ async function openGradeModal(assignment) {
       }
       div.appendChild(gradeInfo);
       const regradeBtn = document.createElement('button');
-      regradeBtn.className = 'primary-btn';
+      regradeBtn.className = 'btn-blue';
       regradeBtn.textContent = 'Regrade';
       regradeBtn.addEventListener('click', () => {
         openGradingInterface(assignment, sub);
@@ -2415,7 +2629,7 @@ async function openGradeModal(assignment) {
       div.appendChild(regradeBtn);
     } else {
       const gradeBtn = document.createElement('button');
-      gradeBtn.className = 'primary-btn';
+      gradeBtn.className = 'btn-blue';
       gradeBtn.textContent = 'Grade';
       gradeBtn.addEventListener('click', () => {
         openGradingInterface(assignment, sub);
@@ -2557,8 +2771,7 @@ function openGradingInterface(assignment, submission) {
   const clearBtn = document.createElement('button');
   clearBtn.textContent = 'Clear Annotations';
   clearBtn.type = 'button';
-  clearBtn.className = 'primary-btn';
-  clearBtn.style.backgroundColor = '#ff3b30';
+  clearBtn.className = 'btn-red';
   clearBtn.style.marginTop = '0.5rem';
   clearBtn.addEventListener('click', () => {
     const ctx = annotationCanvas.getContext('2d');
@@ -2566,7 +2779,7 @@ function openGradingInterface(assignment, submission) {
   });
   const submitBtn = document.createElement('button');
   submitBtn.textContent = 'Submit Grade';
-  submitBtn.className = 'primary-btn';
+  submitBtn.className = 'btn-blue';
   submitBtn.addEventListener('click', async () => {
     const gradeValue = gradeInput.value;
     const comments = commentInput.value;

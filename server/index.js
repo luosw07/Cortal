@@ -42,6 +42,9 @@ const notifications = [];
 // start as approved=false and must be approved by an admin via pendingStudents.
 const users = [];
 
+// Password reset requests. Each entry: { email, approved: boolean }
+const resetRequests = [];
+
 // Student registration and management
 // Pending student registrations awaiting admin approval
 const pendingStudents = [];
@@ -59,6 +62,158 @@ function findStudentById(studentId) {
 }
 // Messages store for private messaging. Each message has {id, fromName, fromEmail, toName, toEmail, subject, content, date, read}
 const messages = [];
+
+// -----------------------------------------------------------------------------
+// Password reset workflow
+// -----------------------------------------------------------------------------
+// A user can request a password reset by submitting their email to
+// /api/auth/requestReset. The request is stored in resetRequests and must be
+// approved by an admin via /api/admin/resetRequests/:email/approve. Once
+// approved, the user can reset their password by calling /api/auth/resetPassword
+// with email and newPassword. The approved request is removed upon success.
+
+// Request a password reset. Anyone may call this. A notification is sent to
+// admins that a reset has been requested. If the email does not exist, we
+// return success without revealing that.
+app.post('/api/auth/requestReset', (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email required' });
+  // If already pending, do nothing
+  const existing = resetRequests.find((r) => r.email === email);
+  if (!existing) {
+    resetRequests.push({ email, approved: false });
+    // Notify admins of pending reset
+    users.forEach((u) => {
+      if (u.role === 'admin') {
+        createNotification(u.email, `Password reset requested for ${email}`);
+      }
+    });
+    saveData();
+  }
+  res.json({ message: 'Reset request submitted. Wait for admin approval.' });
+});
+
+// Admin: list all pending password reset requests
+app.get('/api/admin/resetRequests', authRequired, adminRequired, (req, res) => {
+  res.json(resetRequests);
+});
+
+// Admin: approve a password reset for a given email
+app.post('/api/admin/resetRequests/:email/approve', authRequired, adminRequired, (req, res) => {
+  const email = req.params.email;
+  const reqIndex = resetRequests.findIndex((r) => r.email === email);
+  if (reqIndex === -1) return res.status(404).json({ error: 'Reset request not found' });
+  resetRequests[reqIndex].approved = true;
+  // Notify user via email and notification
+  sendEmail(email, 'Password reset approved', 'An administrator has approved your password reset request. You can now set a new password in the course portal.');
+  createNotification(email, 'Password reset approved');
+  saveData();
+  res.json({ message: 'Reset approved' });
+});
+
+// Reset password after approval. Requires email and newPassword.
+app.post('/api/auth/resetPassword', async (req, res) => {
+  const { email, newPassword } = req.body;
+  if (!email || !newPassword) return res.status(400).json({ error: 'Email and new password required' });
+  const reqObj = resetRequests.find((r) => r.email === email && r.approved);
+  if (!reqObj) return res.status(403).json({ error: 'No approved reset request for this email' });
+  const user = users.find((u) => u.email === email);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  user.passwordHash = await bcrypt.hash(newPassword, 10);
+  // Remove reset request
+  const idx = resetRequests.findIndex((r) => r.email === email);
+  if (idx !== -1) resetRequests.splice(idx, 1);
+  saveData();
+  res.json({ message: 'Password has been reset successfully' });
+});
+
+// Data persistence: path to save/load application state. This enables the server
+// to retain announcements, assignments, submissions and other entities across
+// restarts. In production you would use a proper database, but for this
+// demonstration we serialize to a JSON file within the server directory.
+const DATA_FILE = path.join(__dirname, 'data.json');
+
+/**
+ * Load persistent data from the data file into the in-memory arrays. This
+ * function mutates the existing arrays rather than reassigning them so that
+ * references remain valid. If no file exists, it creates one with initial
+ * empty data. Any errors are silently ignored.
+ */
+function loadData() {
+  try {
+    if (!fs.existsSync(DATA_FILE)) {
+      fs.writeFileSync(DATA_FILE, JSON.stringify({
+        announcements: [],
+        assignments: [],
+        submissions: [],
+        resources: [],
+        exams: [],
+        notifications: [],
+        users: [],
+        pendingStudents: [],
+        students: [],
+        forumThreads: [],
+        messages: [],
+        courseInfo: courseInfo,
+        taInvitationCode: global.taInvitationCode,
+        resetRequests: []
+      }, null, 2));
+    }
+    const raw = fs.readFileSync(DATA_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    // Repopulate arrays
+    announcements.splice(0, announcements.length, ...(data.announcements || []));
+    assignments.splice(0, assignments.length, ...(data.assignments || []));
+    submissions.splice(0, submissions.length, ...(data.submissions || []));
+    resources.splice(0, resources.length, ...(data.resources || []));
+    exams.splice(0, exams.length, ...(data.exams || []));
+    notifications.splice(0, notifications.length, ...(data.notifications || []));
+    users.splice(0, users.length, ...(data.users || []));
+    pendingStudents.splice(0, pendingStudents.length, ...(data.pendingStudents || []));
+    students.splice(0, students.length, ...(data.students || []));
+    forumThreads.splice(0, forumThreads.length, ...(data.forumThreads || []));
+    messages.splice(0, messages.length, ...(data.messages || []));
+    resetRequests.splice(0, resetRequests.length, ...(data.resetRequests || []));
+    if (data.courseInfo) {
+      courseInfo = data.courseInfo;
+    }
+    if (data.taInvitationCode) {
+      global.taInvitationCode = data.taInvitationCode;
+    }
+  } catch (err) {
+    console.error('Failed to load data:', err);
+  }
+}
+
+/**
+ * Persist the current in-memory data to the data file. This is called
+ * whenever a mutating operation occurs (e.g. creating assignments,
+ * approving students, posting messages). Errors are logged but do not
+ * interrupt request handling.
+ */
+function saveData() {
+  try {
+    const data = {
+      announcements,
+      assignments,
+      submissions,
+      resources,
+      exams,
+      notifications,
+      users,
+      pendingStudents,
+      students,
+      forumThreads,
+      messages,
+      courseInfo,
+      taInvitationCode: global.taInvitationCode,
+      resetRequests
+    };
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error('Failed to save data:', err);
+  }
+}
 
 /**
  * Create a new notification record for the specified user. This helper is used
@@ -153,6 +308,9 @@ const upload = multer({ storage });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Load persisted data on startup
+loadData();
 
 app.use(cors());
 app.use(express.json());
@@ -272,6 +430,8 @@ app.post('/api/announcements', authRequired, adminRequired, (req, res) => {
   announcements.unshift(announcement);
   // In a full system you would email enrolled students here
   res.status(201).json(announcement);
+  // Persist changes
+  saveData();
 });
 
 /**
@@ -297,6 +457,8 @@ app.post('/api/assignments', authRequired, adminRequired, upload.single('file'),
   assignments.push(assignment);
   // In a real system you would notify enrolled students about new assignments via email
   res.status(201).json({ id });
+  // Persist changes
+  saveData();
 });
 
 // Student submits assignment PDF
@@ -352,6 +514,8 @@ app.post('/api/assignments/:id/submit', upload.single('file'), (req, res) => {
   // Send confirmation email
   sendEmail(studentEmail, 'Assignment submission received', `Dear ${studentName},\n\nYour submission for assignment ${assignmentId} has been received.`);
   res.status(200).json({ message: 'Submission received', submissionId: sub.id });
+  // Persist changes
+  saveData();
 });
 
 // Get submissions for an assignment (for admin)
@@ -415,6 +579,8 @@ app.post('/api/assignments/:assignmentId/submissions/:submissionId/grade', uploa
     body += `\nYou can download your feedback file here: ${feedbackUrl}`;
   }
   sendEmail(submission.studentEmail, subject, body);
+  // Persist data after grading
+  saveData();
   res.json({ message: 'Grading complete', feedbackPath: submission.feedbackPath });
 });
 
@@ -434,6 +600,8 @@ app.post('/api/resources', authRequired, adminRequired, upload.single('file'), (
   const id = Date.now().toString();
   resources.push({ id, title, filePath: file.path, uploadedAt: new Date().toISOString() });
   res.status(201).json({ id });
+  // Persist changes
+  saveData();
 });
 
 /**
@@ -448,6 +616,8 @@ app.post('/api/exams', authRequired, adminRequired, (req, res) => {
   const id = Date.now().toString();
   exams.push({ id, title, date, description });
   res.status(201).json({ id });
+  // Persist changes
+  saveData();
 });
 
 /**
@@ -460,7 +630,15 @@ app.put('/api/taCode', authRequired, adminRequired, (req, res) => {
     return res.status(400).json({ error: 'Code is required' });
   }
   global.taInvitationCode = code;
+  // Persist new invitation code
+  saveData();
   return res.json({ code });
+});
+
+// Get current TA invitation code. Requires admin authentication.
+app.get('/api/taCode', authRequired, adminRequired, (req, res) => {
+  const code = global.taInvitationCode || 'TA2025';
+  res.json({ code });
 });
 
 /**
@@ -512,6 +690,8 @@ app.post('/api/forum', authRequired, upload.single('file'), (req, res) => {
   };
   forumThreads.unshift(thread);
   res.status(201).json({ id });
+  // Persist changes
+  saveData();
 });
 
 // Get a single thread with comments
@@ -547,6 +727,8 @@ app.post('/api/forum/:id/comments', authRequired, upload.single('file'), (req, r
   };
   thread.comments.push(comment);
   res.status(201).json({ id: comment.id });
+  // Persist changes
+  saveData();
 });
 
 // Delete a thread (admin only)
@@ -555,6 +737,8 @@ app.delete('/api/forum/:id', authRequired, adminRequired, (req, res) => {
   if (idx === -1) return res.status(404).json({ error: 'Thread not found' });
   forumThreads.splice(idx, 1);
   res.json({ message: 'Thread deleted' });
+  // Persist changes
+  saveData();
 });
 
 // Toggle archive for a thread (admin only)
@@ -563,6 +747,8 @@ app.post('/api/forum/:id/archive', authRequired, adminRequired, (req, res) => {
   if (!thread) return res.status(404).json({ error: 'Thread not found' });
   thread.archived = !thread.archived;
   res.json({ archived: thread.archived });
+  // Persist changes
+  saveData();
 });
 
 // Delete a comment (admin only)
@@ -573,6 +759,8 @@ app.delete('/api/forum/:threadId/comments/:commentId', authRequired, adminRequir
   if (idx === -1) return res.status(404).json({ error: 'Comment not found' });
   thread.comments.splice(idx, 1);
   res.json({ message: 'Comment deleted' });
+  // Persist changes
+  saveData();
 });
 
 /**
@@ -590,6 +778,8 @@ app.put('/api/courseInfo', (req, res) => {
   }
   courseInfo = info;
   res.json({ info: courseInfo });
+  // Persist changes
+  saveData();
 });
 
 /**
@@ -609,6 +799,8 @@ app.put('/api/notifications/:id/read', (req, res) => {
   if (!note) return res.status(404).json({ error: 'Notification not found' });
   note.read = true;
   res.json({ success: true });
+  // Persist notification read state
+  saveData();
 });
 
 /**
@@ -631,6 +823,8 @@ app.post('/api/registerStudent', (req, res) => {
   // Create a notification for the student indicating that their registration is awaiting approval
   createNotification(email, 'Registration pending – Your student account is awaiting approval');
   res.status(201).json({ message: 'Registration submitted and pending approval' });
+  // Persist pending student registration
+  saveData();
 });
 
 // Check student registration status by email. Returns status: approved, pending, or notfound.
@@ -672,6 +866,7 @@ app.post('/api/students/:id/approve', authRequired, adminRequired, (req, res) =>
   // Notify student of approval
   sendEmail(stu.email, 'Registration approved', `Dear ${stu.name},\n\nYour account has been approved by the administrator. You can now log in to the course portal.`);
   res.json({ message: 'Student approved', student: newStudent });
+  saveData();
 });
 
 // Reject a pending student by id (admin only)
@@ -686,6 +881,8 @@ app.post('/api/students/:id/reject', authRequired, adminRequired, (req, res) => 
   // Notify student of rejection
   sendEmail(stu.email, 'Registration rejected', `Dear ${stu.name},\n\nYour registration has been rejected by the administrator.`);
   res.json({ message: 'Student registration rejected' });
+  // Persist changes after rejecting a student
+  saveData();
 });
 
 // Mute (ban) a student by studentId (admin only). Muted students cannot post or submit.
@@ -702,6 +899,8 @@ app.post('/api/students/:studentId/mute', authRequired, adminRequired, (req, res
   sendEmail(stu.email, 'Account muted', `Dear ${stu.name},\n\nYour account has been muted by the administrator. You will not be able to post or submit assignments until this restriction is lifted.`);
   createNotification(stu.email, 'Your account has been muted');
   res.json({ message: 'Student muted' });
+  // Persist muted state
+  saveData();
 });
 
 // Unmute a student by studentId (admin only)
@@ -718,6 +917,8 @@ app.post('/api/students/:studentId/unmute', authRequired, adminRequired, (req, r
   sendEmail(stu.email, 'Account unmuted', `Dear ${stu.name},\n\nYour account has been unmuted by the administrator. You may now post and submit assignments again.`);
   createNotification(stu.email, 'Your account has been unmuted');
   res.json({ message: 'Student unmuted' });
+  // Persist unmuted state
+  saveData();
 });
 
 // Get list of muted students (admin only)
@@ -758,15 +959,25 @@ app.post('/api/messages', (req, res) => {
   if (!fromName || !fromEmail || !toEmail || !subject || !content) {
     return res.status(400).json({ error: 'Missing fields' });
   }
+  // Restrict messaging: if neither sender nor recipient is an admin, disallow
+  const sender = users.find((u) => u.email === fromEmail);
+  const receiver = users.find((u) => u.email === toEmail);
+  if (sender && receiver) {
+    if (sender.role !== 'admin' && receiver.role !== 'admin') {
+      return res.status(403).json({ error: 'Private messages can only be sent to or from administrators' });
+    }
+  }
   const id = Date.now().toString();
-  // Attempt to find recipient name in students or admin (if available)
-  const toStudent = students.find((s) => s.email === toEmail);
-  const toName = toStudent ? toStudent.name : toEmail;
+  // Determine recipient name (if available)
+  let toName = toEmail;
+  if (receiver) toName = receiver.name;
   const msg = { id, fromName, fromEmail, toName, toEmail, subject, content, date: new Date().toISOString(), read: false };
   messages.unshift(msg);
   // Notify recipient
   sendEmail(toEmail, `New private message from ${fromName}`, `You have received a new private message:\n\nSubject: ${subject}\n\n${content}`);
   createNotification(toEmail, `New message from ${fromName}`);
+  // Persist messages
+  saveData();
   res.status(201).json({ message: 'Message sent', id });
 });
 
@@ -785,6 +996,14 @@ app.put('/api/messages/:id/read', (req, res) => {
   if (!msg) return res.status(404).json({ error: 'Message not found' });
   msg.read = true;
   res.json({ success: true });
+  // Persist read state
+  saveData();
+});
+
+// Get list of all admin users (name and email). Requires authentication.
+app.get('/api/admins', authRequired, (req, res) => {
+  const admins = users.filter(u => u.role === 'admin').map(u => ({ name: u.name, email: u.email }));
+  res.json(admins);
 });
 
 /**
