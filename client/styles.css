@@ -234,8 +234,9 @@ section.page {
   background-color: #fff;
   padding: 1rem;
   border-radius: 10px;
-  width: 90%;
-  max-width: 1000px;
+  /* Increase modal size for grading interface to give more breathing room */
+  width: 95%;
+  max-width: 1200px;
   max-height: 90vh;
   overflow-y: auto;
   position: relative;
@@ -461,6 +462,16 @@ section.page {
   display: flex;
   justify-content: flex-end;
   margin-top: 0.5rem;
+}
+
+/* Card used for thread view body and forms to give consistent rounded box */
+.thread-view-card,
+.form-card {
+  background-color: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  padding: 1rem;
+  margin-bottom: 1rem;
 }
 
 /* Small button style for actions inside comments */

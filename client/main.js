@@ -1077,12 +1077,15 @@ async function openThreadPage(threadId) {
       setActiveNav(document.querySelector('nav.nav-links button[data-section="discussions"]'));
     });
     container.appendChild(backBtn);
+    // Create a card container for the thread header, meta, attachments and body
+    const threadCard = document.createElement('div');
+    threadCard.className = 'thread-view-card';
     // Header with title
     const header = document.createElement('div');
     const h3 = document.createElement('h3');
     h3.textContent = thread.title;
     header.appendChild(h3);
-    container.appendChild(header);
+    threadCard.appendChild(header);
     // Meta information
     const meta = document.createElement('div');
     meta.className = 'meta';
@@ -1098,7 +1101,7 @@ async function openThreadPage(threadId) {
       arch.style.color = '#ff3b30';
       meta.appendChild(arch);
     }
-    container.appendChild(meta);
+    threadCard.appendChild(meta);
     // Attachment if exists: provide preview for PDFs and download for all types
     if (thread.attachmentPath) {
       const rel = thread.attachmentPath.replace(/.*uploads[\\/]/, 'uploads/').replace(/\\/g, '/');
@@ -1125,7 +1128,7 @@ async function openThreadPage(threadId) {
       downloadBtn.style.textDecoration = 'none';
       downloadBtn.textContent = 'Download Attachment';
       wrapper.appendChild(downloadBtn);
-      container.appendChild(wrapper);
+      threadCard.appendChild(wrapper);
     }
     // Content body parsed
     const body = document.createElement('div');
@@ -1138,7 +1141,8 @@ async function openThreadPage(threadId) {
         console.error(err);
       }
     }
-    container.appendChild(body);
+    threadCard.appendChild(body);
+    container.appendChild(threadCard);
     // Comments section
     const commentsContainer = document.createElement('div');
     commentsContainer.className = 'comments-container';
@@ -1622,6 +1626,25 @@ async function loadAnnouncements() {
     li.appendChild(title);
     li.appendChild(contentEl);
     li.appendChild(date);
+    // Admin-only delete button for announcements
+    if (currentUser && currentUser.role === 'admin') {
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn-red';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.style.marginTop = '0.5rem';
+      deleteBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm('Are you sure you want to delete this announcement?')) return;
+        const resp = await fetchAuth(`/api/announcements/${ann.id}`, { method: 'DELETE' });
+        if (resp.ok) {
+          loadAnnouncements();
+        } else {
+          const msg = await resp.json();
+          alert(msg.error || 'Failed to delete announcement');
+        }
+      });
+      li.appendChild(deleteBtn);
+    }
     list.appendChild(li);
   });
 }
@@ -1770,6 +1793,8 @@ async function loadAssignments() {
           uploadContainer.appendChild(label);
           uploadContainer.appendChild(fileNameSpan);
           uploadContainer.appendChild(submitBtn);
+          // Align the entire upload row to the right side of the actions container
+          uploadContainer.style.marginLeft = 'auto';
           actions.appendChild(uploadContainer);
         }
       } catch (err) {
@@ -1790,7 +1815,7 @@ async function loadAssignments() {
       msgDiv.textContent = 'Login to submit this assignment.';
       actions.appendChild(msgDiv);
     }
-    // Admin grade button
+    // Admin actions: grade and delete buttons
     if (currentUser && currentUser.role === 'admin') {
       const gradeBtn = document.createElement('button');
       gradeBtn.className = 'btn-yellow';
@@ -1800,6 +1825,22 @@ async function loadAssignments() {
         openGradeModal(assn);
       });
       actions.appendChild(gradeBtn);
+      // Delete assignment button
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn-red';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm('Are you sure you want to delete this assignment?')) return;
+        const resp = await fetchAuth(`/api/assignments/${assn.id}`, { method: 'DELETE' });
+        if (resp.ok) {
+          loadAssignments();
+        } else {
+          const msg = await resp.json();
+          alert(msg.error || 'Failed to delete assignment');
+        }
+      });
+      actions.appendChild(deleteBtn);
     }
     // Append details and actions to card
     card.appendChild(details);
@@ -1848,6 +1889,24 @@ async function loadResources() {
     downloadBtn.style.textDecoration = 'none';
     downloadBtn.textContent = 'Download';
     actions.appendChild(downloadBtn);
+    // Admin-only delete button for resources
+    if (currentUser && currentUser.role === 'admin') {
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn-red';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete this resource?')) return;
+        const resp = await fetchAuth(`/api/resources/${resItem.id}`, { method: 'DELETE' });
+        if (resp.ok) {
+          loadResources();
+        } else {
+          const msg = await resp.json();
+          alert(msg.error || 'Failed to delete resource');
+        }
+      });
+      actions.appendChild(deleteBtn);
+    }
     card.appendChild(actions);
     container.appendChild(card);
   });
@@ -1877,6 +1936,25 @@ async function loadExams() {
     item.appendChild(title);
     item.appendChild(meta);
     item.appendChild(description);
+    // Admin-only delete button
+    if (currentUser && currentUser.role === 'admin') {
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn-red';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.style.marginTop = '0.5rem';
+      deleteBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete this exam notification?')) return;
+        const resp = await fetchAuth(`/api/exams/${exam.id}`, { method: 'DELETE' });
+        if (resp.ok) {
+          loadExams();
+        } else {
+          const msg = await resp.json();
+          alert(msg.error || 'Failed to delete exam');
+        }
+      });
+      item.appendChild(deleteBtn);
+    }
     container.appendChild(item);
   });
 }
@@ -2407,8 +2485,9 @@ async function openThreadModal(threadId) {
   content.appendChild(commentsContainer);
   // Comment form if logged in
   if (currentUser) {
-    const form = document.createElement('div');
-    form.className = 'comment-form';
+    // Wrap comment form in a card for consistent styling
+    const formCard = document.createElement('div');
+    formCard.className = 'form-card';
     const textarea = document.createElement('textarea');
     textarea.placeholder = 'Add a comment...';
     textarea.rows = 3;
@@ -2420,7 +2499,7 @@ async function openThreadModal(threadId) {
     submit.addEventListener('click', async () => {
       const contentValue = textarea.value.trim();
       if (!contentValue) return;
-      const resp = await fetch(`/api/forum/${thread.id}/comments`, {
+      const resp = await fetchAuth(`/api/forum/${thread.id}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2432,15 +2511,15 @@ async function openThreadModal(threadId) {
       });
       if (resp.ok) {
         textarea.value = '';
-        openThreadModal(thread.id);
+        openThreadPage(thread.id);
       } else {
         const msg = await resp.json();
         alert(msg.error || 'Failed to post comment');
       }
     });
-    form.appendChild(textarea);
-    form.appendChild(submit);
-    content.appendChild(form);
+    formCard.appendChild(textarea);
+    formCard.appendChild(submit);
+    content.appendChild(formCard);
   } else {
     const loginMsg = document.createElement('div');
     loginMsg.style.marginTop = '1rem';
@@ -2607,33 +2686,51 @@ async function openGradeModal(assignment) {
     meta.textContent = `Submitted: ${new Date(sub.uploadedAt).toLocaleString()}`;
     div.appendChild(meta);
     if (sub.graded) {
-      const gradeInfo = document.createElement('div');
-      gradeInfo.style.marginTop = '0.25rem';
-      gradeInfo.innerHTML = `<strong>Grade:</strong> ${sub.grade}<br/><strong>Comments:</strong> ${sub.comments || '—'}`;
+      // Display grade as a coloured badge with comments beneath
+      const gradeContainer = document.createElement('div');
+      gradeContainer.style.marginTop = '0.5rem';
+      gradeContainer.style.display = 'flex';
+      gradeContainer.style.flexDirection = 'column';
+      gradeContainer.style.gap = '0.25rem';
+      const badge = document.createElement('span');
+      badge.className = 'btn-green';
+      badge.style.pointerEvents = 'none';
+      badge.style.fontSize = '0.9rem';
+      badge.style.padding = '0.4rem 0.75rem';
+      badge.textContent = `Grade: ${sub.grade}`;
+      gradeContainer.appendChild(badge);
+      const commentsDiv = document.createElement('div');
+      commentsDiv.style.fontSize = '0.85rem';
+      commentsDiv.innerHTML = `<strong>Comments:</strong> ${sub.comments || '—'}`;
+      gradeContainer.appendChild(commentsDiv);
       if (sub.feedbackPath) {
-        const link = document.createElement('a');
-        const rel = sub.feedbackPath.replace(/.*uploads\\/, 'uploads/').replace(/\\/g, '/');
-        link.href = '/' + rel;
-        link.textContent = 'Download Feedback';
-        link.target = '_blank';
-        gradeInfo.appendChild(document.createElement('br'));
-        gradeInfo.appendChild(link);
+        const feedbackRel = sub.feedbackPath.replace(/.*uploads\\/, 'uploads/').replace(/\\/g, '/');
+        const feedbackLink = document.createElement('a');
+        feedbackLink.href = '/' + feedbackRel;
+        feedbackLink.textContent = 'Download Feedback';
+        feedbackLink.target = '_blank';
+        feedbackLink.className = 'btn-blue';
+        feedbackLink.style.width = 'fit-content';
+        gradeContainer.appendChild(feedbackLink);
       }
-      div.appendChild(gradeInfo);
+      div.appendChild(gradeContainer);
       const regradeBtn = document.createElement('button');
-      regradeBtn.className = 'btn-blue';
+      regradeBtn.className = 'btn-yellow';
       regradeBtn.textContent = 'Regrade';
       regradeBtn.addEventListener('click', () => {
         openGradingInterface(assignment, sub);
       });
+      regradeBtn.style.marginTop = '0.5rem';
       div.appendChild(regradeBtn);
     } else {
+      // Display a single button to start grading
       const gradeBtn = document.createElement('button');
-      gradeBtn.className = 'btn-blue';
+      gradeBtn.className = 'btn-yellow';
       gradeBtn.textContent = 'Grade';
       gradeBtn.addEventListener('click', () => {
         openGradingInterface(assignment, sub);
       });
+      gradeBtn.style.marginTop = '0.5rem';
       div.appendChild(gradeBtn);
     }
     content.appendChild(div);

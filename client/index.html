@@ -327,16 +327,18 @@
       <h2>Discussion Forum</h2>
       <div id="discussionList" class="discussion-list"></div>
       <div id="newThreadContainer" class="hidden">
-        <h3>New Thread</h3>
-        <form id="newThreadForm" class="form">
+        <div class="form-card">
+          <h3>New Thread</h3>
+          <form id="newThreadForm" class="form">
           <label for="threadTitle">Title</label>
           <input type="text" id="threadTitle" required />
           <label for="threadContent">Content (Markdown &amp; LaTeX)</label>
           <textarea id="threadContent" rows="4" required></textarea>
           <label for="threadFile">Attachment (optional)</label>
           <input type="file" id="threadFile" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.*,.png,.jpg,.jpeg" />
-          <button type="submit" class="btn-blue">Post Thread</button>
-        </form>
+            <button type="submit" class="btn-blue">Post Thread</button>
+          </form>
+        </div>
       </div>
     </section>
 
