@@ -53,7 +53,6 @@
       </form>
       <p style="margin-top:0.5rem; font-size:0.85rem;">Don’t have an account? <a href="#" id="showRegisterLink">Register here</a></p>
       <p style="margin-top:0.5rem; font-size:0.85rem;">Forgot your password? <a href="#" id="showResetRequestLink">Request a reset</a></p>
-      <p style="margin-top:0.5rem; font-size:0.85rem;">Have an approved reset? <a href="#" id="showResetLink">Reset now</a></p>
     </section>
 
     <!-- Registration Section -->
@@ -103,6 +102,8 @@
       <form id="resetPasswordForm" class="form">
         <label for="resetPasswordEmail">Email</label>
         <input type="email" id="resetPasswordEmail" required />
+        <!-- Hidden token field; populated automatically from the reset link. -->
+        <input type="hidden" id="resetTokenInput" />
         <label for="newPassword">New Password</label>
         <input type="password" id="newPassword" required />
         <button type="submit" class="btn-blue">Reset Password</button>
@@ -174,6 +175,19 @@
         <!-- dynamic content inserted here -->
       </div>
     </div>
+
+    <!-- Assignment Grades Page: lists graded and ungraded submissions for a single assignment -->
+    <section id="assignment-grades-section" class="page hidden">
+      <h2 id="gradesPageTitle">Grade Submissions</h2>
+      <div id="gradesList"></div>
+    </section>
+
+    <!-- Grade Submission Page: view and grade an individual submission on its own page -->
+    <section id="grade-submission-section" class="page hidden">
+      <button id="backToGradesBtn" class="btn-blue" style="margin-bottom: 1rem;">&larr; Back</button>
+      <h2 id="gradeSubmissionTitle">Grade Submission</h2>
+      <div id="gradeSubmissionContent"></div>
+    </section>
 
     <!-- PDF Preview Modal (for previewing any PDF with pdf.js) -->
     <div id="pdfModal" class="modal hidden">
@@ -378,6 +392,8 @@
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.0/dist/contrib/auto-render.min.js"></script>
     <!-- Include pdf.js for richer PDF preview (multi‑page and zoom). We use a version from cdnjs. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <!-- Include SweetAlert2 for prettier alerts -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <!-- Main script should load after markdown and math libraries -->
     <script src="main.js"></script>
   </body>

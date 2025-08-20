@@ -21,6 +21,44 @@ let authToken = null;
 // Track the current chat conversation partner email for private messaging
 let currentConversation = null;
 
+// Store reset token if the user navigates via the reset link. Populated during
+// DOMContentLoaded parsing of the URL fragment.
+let resetToken = null;
+
+// Override default alert with SweetAlert2 for consistent styling. If Swal is not
+// available, fall back to the built‑in alert.
+if (typeof Swal !== 'undefined') {
+  window.alert = (msg) => {
+    Swal.fire({ text: String(msg), icon: 'info', confirmButtonColor: '#007aff' });
+  };
+  // We deliberately do not override window.confirm because many existing
+  // code paths rely on synchronous behaviour. SweetAlert2 confirmations
+  // are asynchronous and would require refactoring every usage. If desired,
+  // individual confirm dialogs can be replaced with Swal.fire calls.
+  /**
+   * Show a confirmation dialog using SweetAlert2. Returns a promise that
+   * resolves to true if the user confirms, false if cancelled. Falls back
+   * to native confirm() if SweetAlert2 is unavailable.
+   *
+   * @param {string} message
+   * @returns {Promise<boolean>}
+   */
+  window.sweetConfirm = async (message) => {
+    if (typeof Swal === 'undefined') {
+      return confirm(message);
+    }
+    const result = await Swal.fire({
+      text: message,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'OK',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#007aff',
+    });
+    return !!result.isConfirmed;
+  };
+}
+
 /**
  * Helper to construct Authorization headers when a JWT token is present. Use
  * this in conjunction with fetchAuth() when calling protected API routes.
@@ -74,6 +112,14 @@ function renderGauge(score) {
   wrapper.style.alignItems = 'center';
   wrapper.style.gap = '0.5rem';
   wrapper.style.marginBottom = '0.5rem';
+  // Limit the gauge width so that it doesn't span the entire card width. This
+  // helps maintain a balanced layout on assignment cards. The wrapper will
+  // expand only up to 80% of the parent container.
+  // Constrain the gauge wrapper to a reasonable width. Without this, the bar
+  // can stretch across the entire card, pushing other elements off screen.
+  // Limiting the width ensures the gauge sits neatly above buttons and text.
+  wrapper.style.width = '70%';
+  wrapper.style.maxWidth = '70%';
   if (score == null) {
     const span = document.createElement('span');
     span.textContent = 'No grades yet';
@@ -82,7 +128,13 @@ function renderGauge(score) {
   }
   const info = gradeBandClient(score);
   const bar = document.createElement('div');
-  bar.style.flex = '1';
+  // Constrain the bar width so that the gauge does not stretch across the entire card.
+  // Instead of flex:1 which makes it fill all available horizontal space, set a
+  // maximum width so the grade label sits closer to the gauge. This helps
+  // align the gauge within assignment cards and prevents layout overflow.
+  // Allow the bar to grow within the wrapper but not exceed 70% of its space.
+  bar.style.flex = '0 1 100%';
+  bar.style.maxWidth = '100%';
   bar.style.background = '#e5e5ea';
   bar.style.height = '10px';
   bar.style.borderRadius = '999px';
@@ -92,6 +144,10 @@ function renderGauge(score) {
   fill.style.background = info.color;
   fill.style.width = Math.min(Math.max(score, 0), 100) + '%';
   bar.appendChild(fill);
+  // Limit the gauge width so it doesn’t span the entire card. The bar
+  // occupies at most 70% of the horizontal space and will shrink on
+  // smaller screens. The remainder of the space is reserved for the label.
+  bar.style.flex = '0 0 70%';
   const label = document.createElement('span');
   label.textContent = `${info.label} (${Number(score).toFixed(2)})`;
   label.style.color = info.color;
@@ -108,6 +164,11 @@ function renderGauge(score) {
 async function loadMyOverall() {
   const card = document.getElementById('homeOverall');
   if (!card) return;
+  // Hide the overall grade card for admins
+  if (currentUser && currentUser.role !== 'student') {
+    card.style.display = 'none';
+    return;
+  }
   try {
     const resp = await fetchAuth('/api/grades/overall');
     const data = await resp.json();
@@ -135,6 +196,17 @@ async function loadMyOverall() {
 
 // Setup event listeners once DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
+  // Configure pdf.js for CJK (Chinese/Japanese/Korean) support. Setting cMapUrl,
+  // cMapPacked and standardFontDataUrl ensures fonts render correctly for
+  // documents with non‑Latin characters. If pdfjsLib is available, apply
+  // these options globally. WorkerSrc should already be configured when
+  // loading the library.
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.cMapUrl = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/cmaps/';
+    pdfjsLib.GlobalWorkerOptions.cMapPacked = true;
+    pdfjsLib.GlobalWorkerOptions.standardFontDataUrl = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/standard_fonts/';
+  }
   // Restore user and token from localStorage if available
   const storedUser = localStorage.getItem('courseUser');
   const storedToken = localStorage.getItem('courseToken');
@@ -144,6 +216,32 @@ document.addEventListener('DOMContentLoaded', () => {
     initForLoggedInUser();
   } else {
     initForGuest();
+  }
+
+  // Handle password reset link: if the URL hash contains a reset token
+  // e.g. #reset?email=xxx@yyy.com&token=abcdef, we pre‑populate the reset
+  // password form and navigate to the reset password section. This runs
+  // regardless of login state so that a user can reset their password
+  // without being logged in. After reset, the user can log in normally.
+  try {
+    const hash = window.location.hash || '';
+    if (hash.startsWith('#reset')) {
+      const params = new URLSearchParams(hash.replace(/^#reset\??/, ''));
+      const email = params.get('email');
+      const token = params.get('token');
+      if (email && token) {
+        // Fill form fields
+        const emailInput = document.getElementById('resetPasswordEmail');
+        const tokenInput = document.getElementById('resetTokenInput');
+        if (emailInput) emailInput.value = email;
+        if (tokenInput) tokenInput.value = token;
+        // Navigate to reset password section exclusively
+        showSection('reset-password-section');
+        setActiveNav(null);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to parse reset token from URL', err);
   }
 
   // Attach navigation handler for all nav buttons
@@ -347,7 +445,8 @@ document.addEventListener('DOMContentLoaded', () => {
         alert('Please enter a student ID.');
         return;
       }
-      if (!confirm('Mute this student? They will be unable to post or submit.')) return;
+      const ok = await sweetConfirm('Mute this student? They will be unable to post or submit.');
+      if (!ok) return;
       await fetchAuth(`/api/students/${encodeURIComponent(sid)}/mute`, { method: 'POST' });
       alert('Student muted');
       loadStudentList();
@@ -361,7 +460,8 @@ document.addEventListener('DOMContentLoaded', () => {
         alert('Please enter a student ID.');
         return;
       }
-      if (!confirm('Unmute this student?')) return;
+      const ok2 = await sweetConfirm('Unmute this student?');
+      if (!ok2) return;
       await fetchAuth(`/api/students/${encodeURIComponent(sid)}/unmute`, { method: 'POST' });
       alert('Student unmuted');
       loadStudentList();
@@ -650,7 +750,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         const data = await resp.json();
         if (resp.ok) {
-          alert('Reset request submitted. Please wait for admin approval.');
+          alert('If the email exists, a reset link has been sent. Please check your inbox.');
           resetRequestForm.reset();
         } else {
           alert(data.error || 'Failed to request password reset');
@@ -669,22 +769,27 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       const email = document.getElementById('resetPasswordEmail').value.trim();
       const newPass = document.getElementById('newPassword').value;
-      if (!email || !newPass) {
-        alert('Please enter your email and new password');
+      const token = document.getElementById('resetTokenInput')?.value.trim();
+      if (!email || !newPass || !token) {
+        alert('Please enter your email, token and new password');
         return;
       }
       try {
-        const resp = await fetch('/api/auth/resetPassword', {
+        const resp = await fetch('/api/auth/reset', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, newPassword: newPass }),
+          body: JSON.stringify({ email, token, newPassword: newPass }),
         });
         const data = await resp.json();
         if (resp.ok) {
           alert('Password reset successfully. Please log in with your new password.');
-          // Redirect to login page
-          document.getElementById('reset-password-section').classList.add('hidden');
-          document.getElementById('login-section').classList.remove('hidden');
+          // Redirect to login page after reset
+          showSection('login-section');
+          setActiveNav(null);
+          // Clear the URL hash so the token isn't reused
+          if (window.history && typeof window.history.replaceState === 'function') {
+            window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+          }
         } else {
           alert(data.error || 'Failed to reset password');
         }
@@ -1092,11 +1197,28 @@ async function loadNotificationDetails() {
       if (!n.read) item.classList.add('unread');
       item.innerHTML = `<div style="font-weight:600;">${n.message}</div><div style="font-size:0.8rem;color:#6e6e73;margin-top:0.25rem;">${new Date(n.date).toLocaleString()}</div>`;
       item.addEventListener('click', async () => {
+        // Mark as read first
         if (!n.read) {
           await fetch(`/api/notifications/${n.id}/read`, { method: 'PUT' });
           n.read = true;
           item.classList.remove('unread');
           loadNotifications();
+        }
+        // If the notification references an assignment, navigate to it
+        if (n.assignmentId) {
+          try {
+            const res = await fetch(`/api/assignments`);
+            const asns = await res.json();
+            const target = asns.find((a) => a.id === n.assignmentId);
+            if (target) {
+              openAssignmentPage(target);
+            } else {
+              alert('Assignment not found');
+            }
+          } catch (err) {
+            console.error(err);
+            alert('Failed to load assignment');
+          }
         }
       });
       list.appendChild(item);
@@ -1356,7 +1478,8 @@ async function openThreadPage(threadId) {
           delBtn.textContent = 'Delete';
           delBtn.className = 'btn-red';
           delBtn.addEventListener('click', async () => {
-            if (!confirm('Delete this comment?')) return;
+    const ok = await sweetConfirm('Delete this comment?');
+    if (!ok) return;
             const resp = await fetchAuth(`/api/forum/${thread.id}/comments/${c.id}`, { method: 'DELETE' });
             if (resp.ok) {
               openThreadPage(thread.id);
@@ -1469,7 +1592,8 @@ async function openThreadPage(threadId) {
       deleteBtn.textContent = 'Delete Thread';
       deleteBtn.style.marginLeft = '0.5rem';
       deleteBtn.addEventListener('click', async () => {
-        if (!confirm('Delete this thread?')) return;
+        const ok = await sweetConfirm('Delete this thread?');
+        if (!ok) return;
         const resp = await fetchAuth(`/api/forum/${thread.id}`, { method: 'DELETE' });
         if (resp.ok) {
           showSection('discussions-section');
@@ -1521,54 +1645,8 @@ async function openAssignmentPage(assn) {
   meta.textContent = `Due: ${new Date(assn.dueDate).toLocaleString()}`;
   container.appendChild(meta);
 
-  // Assignment dashboard: display submission and grade stats
-  try {
-    const statsResp = await fetchAuth(`/api/assignments/${assn.id}/stats`);
-    if (statsResp.ok) {
-      const stats = await statsResp.json();
-      const dashCard = document.createElement('div');
-      dashCard.className = 'card';
-      const h3 = document.createElement('h3');
-      h3.textContent = 'Assignment Dashboard';
-      dashCard.appendChild(h3);
-      // Submission rate
-      const rate = Math.round((stats.submitted / (stats.totalUsers || 1)) * 100);
-      const pRate = document.createElement('p');
-      pRate.style.fontSize = '0.85rem';
-      pRate.textContent = `Submitted: ${stats.submitted}/${stats.totalUsers} (${rate}%)`;
-      dashCard.appendChild(pRate);
-      // Average grade
-      if (stats.avg !== null && stats.avg !== undefined) {
-        dashCard.appendChild(renderGauge(stats.avg));
-      }
-      // Distribution bars
-      const dist = document.createElement('div');
-      dist.style.display = 'flex';
-      dist.style.flexDirection = 'column';
-      dist.style.gap = '4px';
-      const bandsOrder = ['A+', 'A', 'A-', 'B', 'C', 'D', 'Failed'];
-      bandsOrder.forEach(label => {
-        const row = document.createElement('div');
-        row.style.display = 'flex'; row.style.alignItems = 'center'; row.style.gap = '8px';
-        const lab = document.createElement('span'); lab.textContent = label; lab.style.width = '40px';
-        const barWrap = document.createElement('div'); barWrap.style.flex = '1'; barWrap.style.height = '6px'; barWrap.style.background = '#e5e5ea'; barWrap.style.borderRadius = '999px';
-        const fill = document.createElement('div'); fill.style.height = '6px'; fill.style.borderRadius = '999px'; fill.style.background = '#bbb';
-        const total = stats.submitted || 1;
-        const count = stats.bands[label] || 0;
-        fill.style.width = ((count / total) * 100) + '%';
-        barWrap.appendChild(fill);
-        const cnt = document.createElement('span'); cnt.textContent = count; cnt.style.fontSize = '0.75rem';
-        row.appendChild(lab); row.appendChild(barWrap); row.appendChild(cnt);
-        dist.appendChild(row);
-      });
-      dashCard.appendChild(dist);
-      dashCard.style.marginBottom = '1rem';
-      container.appendChild(dashCard);
-    }
-  } catch (err) {
-    console.error('Failed to load assignment stats', err);
-  }
-  // Description parsed
+  // Assignment dashboard disabled: previously this section displayed submission and grade statistics for the assignment. It has been removed per updated requirements.
+  // Description parsed and wrapped in a card for better separation
   const descDiv = document.createElement('div');
   descDiv.innerHTML = window.marked.parse(assn.description || '');
   if (typeof window.renderMathInElement === 'function') {
@@ -1578,7 +1656,14 @@ async function openAssignmentPage(assn) {
       console.error(err);
     }
   }
-  container.appendChild(descDiv);
+  const descCard = document.createElement('div');
+  descCard.className = 'card';
+  descCard.style.marginBottom = '1rem';
+  const descHeader = document.createElement('h4');
+  descHeader.textContent = 'Description';
+  descCard.appendChild(descHeader);
+  descCard.appendChild(descDiv);
+  container.appendChild(descCard);
   // Section: view assignment PDF
   if (assn.pdfPath) {
     // Wrap in a styled section for improved aesthetics
@@ -1696,7 +1781,10 @@ async function openAssignmentPage(assn) {
         status.innerHTML = `<strong>Submitted:</strong> ${new Date(mySub.uploadedAt).toLocaleString()} (not yet graded)`;
       }
       subSection.appendChild(status);
-      // Preview uploaded PDF using pdf.js (first page) with ability to open full preview via click
+      // Preview uploaded PDF using pdf.js (first page) and provide a link to
+      // open the full PDF with navigation using the modal preview. This avoids
+      // duplicating pagination logic here and gives users an easy way to view
+      // multiple pages.
       const previewDiv = document.createElement('div');
       previewDiv.className = 'pdf-container';
       const canvas = document.createElement('canvas');
@@ -1717,6 +1805,15 @@ async function openAssignmentPage(assn) {
           });
         });
       }
+      // Button to view the full PDF with navigation
+      const previewBtn = document.createElement('button');
+      previewBtn.className = 'btn-blue';
+      previewBtn.style.marginTop = '0.5rem';
+      previewBtn.textContent = 'Preview Full PDF';
+      previewBtn.addEventListener('click', () => {
+        openPdfModal(fileUrl, 'My Submission');
+      });
+      subSection.appendChild(previewBtn);
     }
     // Upload input if not graded
       if (!mySub || !mySub.graded) {
@@ -1797,7 +1894,10 @@ async function openAssignmentPage(assn) {
     gradeBtn.className = 'btn-blue';
     gradeBtn.style.marginTop = '1rem';
     gradeBtn.textContent = 'Grade Submissions';
-    gradeBtn.addEventListener('click', () => openGradeModal(assn));
+    gradeBtn.addEventListener('click', () => {
+      // Use dedicated grading page instead of modal
+      openAssignmentGradesPage(assn);
+    });
     container.appendChild(gradeBtn);
   }
 }
@@ -1847,7 +1947,8 @@ async function loadAnnouncements() {
       deleteBtn.style.marginTop = '0.5rem';
       deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (!confirm('Are you sure you want to delete this announcement?')) return;
+        const ok = await sweetConfirm('Are you sure you want to delete this announcement?');
+        if (!ok) return;
         const resp = await fetchAuth(`/api/announcements/${ann.id}`, { method: 'DELETE' });
         if (resp.ok) {
           loadAnnouncements();
@@ -1873,193 +1974,229 @@ async function loadAssignments() {
     container.appendChild(p);
     return;
   }
-  // Build each assignment card with two columns: details and actions
-  for (const assn of data) {
-    const card = document.createElement('div');
-    card.className = 'assignment-card';
-    const details = document.createElement('div');
-    details.className = 'details';
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    // Title and due date
-    const title = document.createElement('h4');
-    title.textContent = assn.title;
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    meta.textContent = `Due: ${new Date(assn.dueDate).toLocaleString()}`;
-    // Description parsed
-    const desc = document.createElement('div');
-    desc.className = 'description';
-    const rawDesc = assn.description || '';
-    desc.innerHTML = window.marked.parse(rawDesc);
-    if (typeof window.renderMathInElement === 'function') {
-      try {
-        window.renderMathInElement(desc, { delimiters: [ { left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false } ] });
-      } catch (err) {
-        console.error('KaTeX rendering error:', err);
+    // Build each assignment card with two columns: details and actions
+    for (const assn of data) {
+      const card = document.createElement('div');
+      card.className = 'assignment-card';
+      const details = document.createElement('div');
+      details.className = 'details';
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+      actions.style.display = 'flex';
+      actions.style.flexDirection = 'column';
+      actions.style.justifyContent = 'space-between';
+      // Title and due date
+      const title = document.createElement('h4');
+      title.textContent = assn.title;
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = `Due: ${new Date(assn.dueDate).toLocaleString()}`;
+      // Description parsed
+      const desc = document.createElement('div');
+      desc.className = 'description';
+      const rawDesc = assn.description || '';
+      desc.innerHTML = window.marked.parse(rawDesc);
+      if (typeof window.renderMathInElement === 'function') {
+        try {
+          window.renderMathInElement(desc, { delimiters: [ { left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false } ] });
+        } catch (err) {
+          console.error('KaTeX rendering error:', err);
+        }
       }
-    }
-    details.appendChild(title);
-    details.appendChild(meta);
-    if (rawDesc) details.appendChild(desc);
-    // Primary action: view details
-    const viewBtn = document.createElement('button');
-    viewBtn.className = 'btn-blue';
-    viewBtn.textContent = 'View Details';
-    viewBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openAssignmentPage(assn);
-    });
-    actions.appendChild(viewBtn);
-    // Provide a download button for the assignment PDF
-    if (assn.pdfPath) {
-      const relPath = assn.pdfPath.replace(/.*uploads[\\/]/, 'uploads/').replace(/\\/g, '/');
-      const downloadBtn = document.createElement('a');
-      downloadBtn.href = '/' + relPath;
-      downloadBtn.target = '_blank';
-      downloadBtn.className = 'btn-green';
-      downloadBtn.style.textDecoration = 'none';
-      downloadBtn.textContent = 'Download PDF';
-      actions.appendChild(downloadBtn);
-    }
-    // Student submission actions and status
-    if (currentUser && currentUser.role === 'student' && currentUser.approved !== false) {
-      try {
-        const resSub = await fetch(`/api/assignments/${assn.id}/submissions`);
-        const subs = await resSub.json();
-        const mySub = subs.find((s) => s.studentEmail === currentUser.email);
-        const statusDiv = document.createElement('div');
-        statusDiv.style.fontSize = '0.85rem';
-        statusDiv.style.marginTop = '0.5rem';
-        if (mySub) {
-          if (mySub.graded) {
-            statusDiv.innerHTML = `<strong>Grade: ${mySub.grade}</strong><br/>Comments: ${mySub.comments || '—'}`;
-            if (mySub.feedbackPath) {
-              const feedbackRel = mySub.feedbackPath.replace(/.*uploads[\\/]/, 'uploads/').replace(/\\/g, '/');
-              const link = document.createElement('a');
-              link.href = '/' + feedbackRel;
-              link.textContent = 'Download Feedback';
-              link.target = '_blank';
-              link.className = 'btn-green';
-              link.style.display = 'inline-block';
-              link.style.marginTop = '0.25rem';
-              statusDiv.appendChild(document.createElement('br'));
-              statusDiv.appendChild(link);
+      details.appendChild(title);
+      details.appendChild(meta);
+      if (rawDesc) details.appendChild(desc);
+      // Status / grade area. Use a column layout so gauge, comments, and
+      // feedback button stack vertically and don’t overlap. Place this
+      // div in the details column rather than the actions column.
+      const statusDiv = document.createElement('div');
+      statusDiv.style.fontSize = '0.85rem';
+      statusDiv.style.marginTop = '0.5rem';
+      statusDiv.style.display = 'flex';
+      statusDiv.style.flexDirection = 'column';
+      statusDiv.style.gap = '0.25rem';
+      // Container for all buttons (bottom row of actions)
+      const btnRow = document.createElement('div');
+      btnRow.style.display = 'flex';
+      btnRow.style.gap = '0.5rem';
+      btnRow.style.justifyContent = 'flex-end';
+      btnRow.style.flexWrap = 'wrap';
+      // Primary action: view details
+      const viewBtn = document.createElement('button');
+      viewBtn.className = 'btn-blue';
+      viewBtn.textContent = 'View Details';
+      viewBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openAssignmentPage(assn);
+      });
+      btnRow.appendChild(viewBtn);
+      // Download assignment PDF
+      if (assn.pdfPath) {
+        const relPath = assn.pdfPath.replace(/.*uploads[\\/]/, 'uploads/').replace(/\\/g, '/');
+        const downloadBtn = document.createElement('a');
+        downloadBtn.href = '/' + relPath;
+        downloadBtn.target = '_blank';
+        downloadBtn.className = 'btn-green';
+        downloadBtn.style.textDecoration = 'none';
+        downloadBtn.textContent = 'Download PDF';
+        btnRow.appendChild(downloadBtn);
+      }
+      // Student submission status and actions
+      if (currentUser && currentUser.role === 'student' && currentUser.approved !== false) {
+        try {
+          const resSub = await fetch(`/api/assignments/${assn.id}/submissions`);
+          const subs = await resSub.json();
+          const mySub = subs.find((s) => s.studentEmail === currentUser.email);
+          if (mySub) {
+            if (mySub.graded) {
+              // Clear existing contents
+              statusDiv.innerHTML = '';
+              // Render gauge for grade (A+..Failed)
+              const gauge = renderGauge(mySub.grade);
+              statusDiv.appendChild(gauge);
+              // Comments
+              const cmtDiv = document.createElement('div');
+              cmtDiv.innerHTML = `<strong>Comments:</strong> ${mySub.comments || '—'}`;
+              cmtDiv.style.marginTop = '0.25rem';
+              statusDiv.appendChild(cmtDiv);
+              // If feedback is available, provide a download button alongside the other
+              // action buttons instead of placing it within the status text. This
+              // keeps all actions aligned in the bottom row. Create the button
+              // only once per assignment and append it after the PDF download.
+              if (mySub.feedbackPath) {
+                const feedbackRel = mySub.feedbackPath.replace(/.*uploads[\\/]/, 'uploads/').replace(/\\/g, '/');
+                const fbBtn = document.createElement('a');
+                fbBtn.href = '/' + feedbackRel;
+                fbBtn.target = '_blank';
+                fbBtn.textContent = 'Download Feedback';
+                fbBtn.className = 'btn-green';
+                // We'll append this button to the action row later, after creating other buttons.
+                fbBtn.dataset.isFeedback = 'true';
+                // Temporarily store on the assignment object for later retrieval
+                assn._feedbackButton = fbBtn;
+              }
+            } else {
+              statusDiv.textContent = `Submitted on ${new Date(mySub.uploadedAt).toLocaleString()}`;
             }
           } else {
-            statusDiv.textContent = `Submitted on ${new Date(mySub.uploadedAt).toLocaleString()}`;
+            statusDiv.textContent = 'Not yet submitted';
           }
-        } else {
-          statusDiv.textContent = 'Not yet submitted';
-        }
-        actions.appendChild(statusDiv);
-        // If not graded, allow (re)submission
-        if (!mySub || !mySub.graded) {
-          const uploadContainer = document.createElement('div');
-          uploadContainer.className = 'upload-container';
-          const fileInput = document.createElement('input');
-          fileInput.type = 'file';
-          fileInput.accept = 'application/pdf';
-          const inputId = `upload-${assn.id}-${Math.floor(Math.random() * 1000000)}`;
-          fileInput.id = inputId;
-          const label = document.createElement('label');
-          label.className = 'upload-label';
-          label.setAttribute('for', inputId);
-          label.innerHTML = '<i class="fa-solid fa-file-arrow-up"></i> Choose PDF';
-          const fileNameSpan = document.createElement('span');
-          fileNameSpan.className = 'file-name';
-          fileNameSpan.textContent = 'No file chosen';
-          fileInput.addEventListener('change', () => {
-            if (fileInput.files.length) {
-              fileNameSpan.textContent = fileInput.files[0].name;
-            } else {
-              fileNameSpan.textContent = 'No file chosen';
-            }
-          });
-          const submitBtn = document.createElement('button');
-      submitBtn.className = 'btn-blue';
-          submitBtn.textContent = mySub ? 'Replace' : 'Submit';
-          submitBtn.addEventListener('click', async () => {
-            if (!fileInput.files.length) {
-              alert('Please select a PDF to submit.');
-              return;
-            }
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-            formData.append('studentName', currentUser.name);
-            formData.append('studentEmail', currentUser.email);
-            formData.append('studentID', currentUser.studentId);
-            formData.append('studentNameZh', currentUser.studentNameZh);
-            const resp = await fetchAuth(`/api/assignments/${assn.id}/submit`, {
-              method: 'POST',
-              body: formData,
+          // If not graded, allow submission or replacement. We build a single
+          // upload row containing the file input, label, filename and submit
+          // button. This row is appended to the bottom button row. Prevent
+          // duplication by constructing only one upload row per assignment.
+          if (!mySub || !mySub.graded) {
+            const uploadRow = document.createElement('div');
+            uploadRow.style.display = 'flex';
+            uploadRow.style.alignItems = 'center';
+            uploadRow.style.gap = '0.5rem';
+            // File input (hidden)
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'application/pdf';
+            fileInput.style.display = 'none';
+            const inputId = `upload-${assn.id}-${Math.floor(Math.random() * 1000000)}`;
+            fileInput.id = inputId;
+            // Label acts as styled button
+            const label = document.createElement('label');
+            label.className = 'btn-grey';
+            label.setAttribute('for', inputId);
+            label.textContent = 'Choose PDF';
+            // Display selected file name
+            const fileNameSpan = document.createElement('span');
+            fileNameSpan.style.fontSize = '0.85rem';
+            fileNameSpan.style.color = '#6e6e73';
+            fileNameSpan.textContent = 'No file chosen';
+            fileInput.addEventListener('change', () => {
+              fileNameSpan.textContent = fileInput.files.length ? fileInput.files[0].name : 'No file chosen';
             });
-            if (resp.ok) {
-              alert('Submission uploaded successfully.');
-              loadAssignments();
-            } else {
-              const msg = await resp.json();
-              alert(msg.error || 'Submission failed');
-            }
-          });
-          uploadContainer.appendChild(fileInput);
-          uploadContainer.appendChild(label);
-          uploadContainer.appendChild(fileNameSpan);
-          uploadContainer.appendChild(submitBtn);
-          // Align the entire upload row to the right side of the actions container
-          uploadContainer.style.marginLeft = 'auto';
-          actions.appendChild(uploadContainer);
+            // Submit button
+            const submitBtn = document.createElement('button');
+            submitBtn.className = 'btn-blue';
+            submitBtn.textContent = mySub ? 'Replace' : 'Submit';
+            submitBtn.addEventListener('click', async () => {
+              if (!fileInput.files.length) {
+                alert('Please select a PDF to submit.');
+                return;
+              }
+              const formData = new FormData();
+              formData.append('file', fileInput.files[0]);
+              formData.append('studentName', currentUser.name);
+              formData.append('studentEmail', currentUser.email);
+              formData.append('studentID', currentUser.studentId);
+              formData.append('studentNameZh', currentUser.studentNameZh);
+              const resp = await fetchAuth(`/api/assignments/${assn.id}/submit`, {
+                method: 'POST',
+                body: formData,
+              });
+              if (resp.ok) {
+                alert(mySub ? 'Submission replaced successfully.' : 'Submission uploaded successfully.');
+                loadAssignments();
+              } else {
+                const msg = await resp.json();
+                alert(msg.error || 'Submission failed');
+              }
+            });
+            uploadRow.appendChild(fileInput);
+            uploadRow.appendChild(label);
+            uploadRow.appendChild(fileNameSpan);
+            uploadRow.appendChild(submitBtn);
+            btnRow.appendChild(uploadRow);
+          }
+        } catch (err) {
+          console.error('Failed to load submission status', err);
         }
-      } catch (err) {
-        console.error('Failed to load submission status', err);
+      } else if (currentUser && (currentUser.role === 'pendingStudent' || currentUser.approved === false)) {
+        statusDiv.textContent = 'Registration pending: you cannot submit assignments yet.';
+      } else if (!currentUser) {
+        statusDiv.textContent = 'Login to submit this assignment.';
       }
-    } else if (currentUser && (currentUser.role === 'pendingStudent' || currentUser.approved === false)) {
-      const msgDiv = document.createElement('div');
-      msgDiv.style.fontSize = '0.85rem';
-      msgDiv.style.color = '#6e6e73';
-      msgDiv.style.marginTop = '0.5rem';
-      msgDiv.textContent = 'Registration pending: you cannot submit assignments yet.';
-      actions.appendChild(msgDiv);
-    } else if (!currentUser) {
-      const msgDiv = document.createElement('div');
-      msgDiv.style.fontSize = '0.85rem';
-      msgDiv.style.color = '#6e6e73';
-      msgDiv.style.marginTop = '0.5rem';
-      msgDiv.textContent = 'Login to submit this assignment.';
-      actions.appendChild(msgDiv);
+      // Admin actions: grade and delete buttons
+      if (currentUser && currentUser.role === 'admin') {
+        const gradeBtn = document.createElement('button');
+        gradeBtn.className = 'btn-yellow';
+        gradeBtn.textContent = 'Grade Submissions';
+        gradeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          // Navigate to the dedicated assignment grades page rather than opening a modal
+          openAssignmentGradesPage(assn);
+        });
+        btnRow.appendChild(gradeBtn);
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn-red';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const ok = await sweetConfirm('Are you sure you want to delete this assignment?');
+          if (!ok) return;
+          const resp = await fetchAuth(`/api/assignments/${assn.id}`, { method: 'DELETE' });
+          if (resp.ok) {
+            loadAssignments();
+          } else {
+            const msg = await resp.json();
+            alert(msg.error || 'Failed to delete assignment');
+          }
+        });
+        btnRow.appendChild(deleteBtn);
+      }
+      // Append the status information into the details column just before attaching to card
+      details.appendChild(statusDiv);
+      // Append details and actions to the card
+      card.appendChild(details);
+      // Move the feedback button (if any) into the button row before appending
+      // the row to actions. This ensures that Download Feedback appears in the
+      // same horizontal group as View/Download PDF rather than inside the
+      // status text. Note: _feedbackButton was attached to the assignment
+      // object earlier when detecting graded submissions.
+      if (assn && assn._feedbackButton) {
+        btnRow.appendChild(assn._feedbackButton);
+        delete assn._feedbackButton;
+      }
+      // Move btnRow into actions now that all buttons have been assembled
+      actions.appendChild(btnRow);
+      card.appendChild(actions);
+      container.appendChild(card);
     }
-    // Admin actions: grade and delete buttons
-    if (currentUser && currentUser.role === 'admin') {
-      const gradeBtn = document.createElement('button');
-      gradeBtn.className = 'btn-yellow';
-      gradeBtn.textContent = 'Grade Submissions';
-      gradeBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openGradeModal(assn);
-      });
-      actions.appendChild(gradeBtn);
-      // Delete assignment button
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'btn-red';
-      deleteBtn.textContent = 'Delete';
-      deleteBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (!confirm('Are you sure you want to delete this assignment?')) return;
-        const resp = await fetchAuth(`/api/assignments/${assn.id}`, { method: 'DELETE' });
-        if (resp.ok) {
-          loadAssignments();
-        } else {
-          const msg = await resp.json();
-          alert(msg.error || 'Failed to delete assignment');
-        }
-      });
-      actions.appendChild(deleteBtn);
-    }
-    // Append details and actions to card
-    card.appendChild(details);
-    card.appendChild(actions);
-    container.appendChild(card);
-  }
 }
 
 async function loadResources() {
@@ -2109,7 +2246,8 @@ async function loadResources() {
       deleteBtn.textContent = 'Delete';
       deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (!confirm('Delete this resource?')) return;
+        const ok = await sweetConfirm('Delete this resource?');
+        if (!ok) return;
         const resp = await fetchAuth(`/api/resources/${resItem.id}`, { method: 'DELETE' });
         if (resp.ok) {
           loadResources();
@@ -2144,11 +2282,26 @@ async function loadExams() {
     const meta = document.createElement('div');
     meta.className = 'meta';
     meta.textContent = `Date: ${new Date(exam.date).toLocaleString()}`;
-    const description = document.createElement('p');
-    description.textContent = exam.description;
+    // Description parsed with Markdown and LaTeX support
+    const description = document.createElement('div');
+    const rawDesc = exam.description || '';
+    description.innerHTML = window.marked.parse(rawDesc);
+    // Render LaTeX if KaTeX is available
+    if (typeof window.renderMathInElement === 'function') {
+      try {
+        window.renderMathInElement(description, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+          ],
+        });
+      } catch (err) {
+        console.error('KaTeX rendering error in exam', err);
+      }
+    }
     item.appendChild(title);
     item.appendChild(meta);
-    item.appendChild(description);
+    if (rawDesc) item.appendChild(description);
     // Admin-only delete button
     if (currentUser && currentUser.role === 'admin') {
       const deleteBtn = document.createElement('button');
@@ -2157,7 +2310,8 @@ async function loadExams() {
       deleteBtn.style.marginTop = '0.5rem';
       deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (!confirm('Delete this exam notification?')) return;
+        const ok = await sweetConfirm('Delete this exam notification?');
+        if (!ok) return;
         const resp = await fetchAuth(`/api/exams/${exam.id}`, { method: 'DELETE' });
         if (resp.ok) {
           loadExams();
@@ -2443,27 +2597,93 @@ async function loadPendingStudents() {
 async function loadStudentList() {
   const container = document.getElementById('studentsList');
   if (!container) return;
+  // Only admins can view the student list
   if (!currentUser || currentUser.role !== 'admin') {
     container.innerHTML = '';
     return;
   }
   try {
-    const res = await fetchAuth('/api/students/muted');
-    const muted = await res.json();
+    // Fetch full user roster from the server
+    const res = await fetchAuth('/api/users');
+    const usersList = await res.json();
     container.innerHTML = '';
-    if (!muted.length) {
-      container.textContent = 'No muted students.';
+    if (!Array.isArray(usersList) || !usersList.length) {
+      container.textContent = 'No users found.';
       return;
     }
-    muted.forEach((stu) => {
-      const div = document.createElement('div');
-      div.className = 'student-item';
-      div.innerHTML = `<div><strong>${stu.name}</strong> (${stu.studentId})<br/><small>${stu.email}</small></div><div style="color:#ff3b30; font-size:0.85rem;">Muted</div>`;
-      container.appendChild(div);
+    usersList.forEach((u) => {
+      const row = document.createElement('div');
+      row.className = 'student-item';
+      row.style.display = 'flex';
+      row.style.justifyContent = 'space-between';
+      row.style.alignItems = 'center';
+      const info = document.createElement('div');
+      let nameLine = `<strong>${u.name}</strong>`;
+      if (u.studentId) nameLine += ` (${u.studentId})`;
+      info.innerHTML = `${nameLine}<br/><small>${u.email}</small>`;
+      const roleSpan = document.createElement('span');
+      // Determine label and colour for role/approval
+      if (u.role === 'admin') {
+        roleSpan.textContent = 'TA';
+        roleSpan.style.color = '#ff9500';
+      } else {
+        if (u.approved) {
+          roleSpan.textContent = 'Student';
+          roleSpan.style.color = '#007aff';
+        } else {
+          roleSpan.textContent = 'Pending';
+          roleSpan.style.color = '#ff3b30';
+        }
+      }
+      row.appendChild(info);
+      row.appendChild(roleSpan);
+      // If the user is a student (not an admin/TA), show a mute/unmute button and status label
+      if (u.role !== 'admin') {
+        // Display muted status next to the role
+        if (u.muted) {
+          const mutedLabel = document.createElement('span');
+          mutedLabel.textContent = 'Muted';
+          mutedLabel.style.color = '#ff3b30';
+          mutedLabel.style.marginLeft = '0.5rem';
+          row.appendChild(mutedLabel);
+        }
+        const muteBtn = document.createElement('button');
+        // Use different colours: red for mute, green for unmute
+        if (u.muted) {
+          muteBtn.className = 'btn-green';
+          muteBtn.textContent = 'Unmute';
+        } else {
+          muteBtn.className = 'btn-red';
+          muteBtn.textContent = 'Mute';
+        }
+        muteBtn.style.marginLeft = '1rem';
+        muteBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          // Confirm action using native confirm (can be replaced by SweetAlert)
+          const action = u.muted ? 'unmute' : 'mute';
+          const confirmMsg = u.muted ? 'Unmute this student?' : 'Mute this student? They will be unable to post or submit.';
+          const ok = await sweetConfirm(confirmMsg);
+          if (!ok) return;
+          try {
+            const resp = await fetchAuth(`/api/students/${u.studentId}/${action}`, { method: 'POST' });
+            if (resp.ok) {
+              loadStudentList();
+            } else {
+              const msg = await resp.json();
+              alert(msg.error || 'Action failed');
+            }
+          } catch (err) {
+            console.error(err);
+            alert('Action failed');
+          }
+        });
+        row.appendChild(muteBtn);
+      }
+      container.appendChild(row);
     });
   } catch (err) {
-    console.error('Failed to load muted students', err);
-    container.textContent = 'Failed to load student list.';
+    console.error('Failed to load user list', err);
+    container.textContent = 'Failed to load user list.';
   }
 }
 
@@ -2764,7 +2984,8 @@ async function openThreadModal(threadId) {
     deleteBtn.textContent = 'Delete Thread';
     deleteBtn.style.marginLeft = '0.5rem';
     deleteBtn.addEventListener('click', async () => {
-      if (!confirm('Delete this thread?')) return;
+      const ok3 = await sweetConfirm('Delete this thread?');
+      if (!ok3) return;
       const resp = await fetchAuth(`/api/forum/${thread.id}`, { method: 'DELETE' });
       if (resp.ok) {
         modal.classList.add('hidden');
@@ -2880,14 +3101,21 @@ async function openGradeModal(assignment) {
     content.appendChild(p);
     return;
   }
-  subs.forEach((sub) => {
+  // Split submissions into ungraded and graded lists
+  const ungradedSubs = subs.filter((s) => !s.graded);
+  const gradedSubs = subs.filter((s) => s.graded);
+  // Sort ungraded by submission time ascending so the oldest appear first for grading
+  ungradedSubs.sort((a, b) => new Date(a.uploadedAt) - new Date(b.uploadedAt));
+  // Sort graded by submission time descending (most recent graded first)
+  gradedSubs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+  // Helper to render a submission entry
+  function renderSubmission(sub) {
     const div = document.createElement('div');
     div.style.marginBottom = '1rem';
     div.style.padding = '0.5rem';
     div.style.backgroundColor = '#f9f9fa';
     div.style.borderRadius = '8px';
     const info = document.createElement('div');
-    // Show student name, ID and Chinese name when available
     let extra = '';
     if (sub.studentID) extra += ` (ID: ${sub.studentID})`;
     if (sub.studentNameZh) extra += ` ${sub.studentNameZh}`;
@@ -2899,19 +3127,17 @@ async function openGradeModal(assignment) {
     meta.textContent = `Submitted: ${new Date(sub.uploadedAt).toLocaleString()}`;
     div.appendChild(meta);
     if (sub.graded) {
-      // Display grade as a coloured badge with comments beneath
       const gradeContainer = document.createElement('div');
       gradeContainer.style.marginTop = '0.5rem';
       gradeContainer.style.display = 'flex';
       gradeContainer.style.flexDirection = 'column';
       gradeContainer.style.gap = '0.25rem';
-      // Replace badge with a gauge representing the numeric grade
-      gradeContainer.appendChild(renderGauge(Number(sub.grade)));
+      const gaugeElem = renderGauge(Number(sub.grade));
+      gradeContainer.appendChild(gaugeElem);
       const commentsDiv = document.createElement('div');
       commentsDiv.style.fontSize = '0.85rem';
       commentsDiv.innerHTML = `<strong>Comments:</strong> ${sub.comments || '—'}`;
       gradeContainer.appendChild(commentsDiv);
-      // Row for download feedback and regrade buttons
       const buttonsRow = document.createElement('div');
       buttonsRow.style.display = 'flex';
       buttonsRow.style.gap = '0.5rem';
@@ -2930,24 +3156,49 @@ async function openGradeModal(assignment) {
       regradeBtn.className = 'btn-yellow';
       regradeBtn.textContent = 'Regrade';
       regradeBtn.addEventListener('click', () => {
-        openGradingInterface(assignment, sub);
+        // Use dedicated grading page instead of modal
+        openGradeSubmissionPage(assignment, sub);
       });
       buttonsRow.appendChild(regradeBtn);
       gradeContainer.appendChild(buttonsRow);
       div.appendChild(gradeContainer);
     } else {
-      // Display a single button to start grading
       const gradeBtn = document.createElement('button');
       gradeBtn.className = 'btn-yellow';
       gradeBtn.textContent = 'Grade';
-      gradeBtn.addEventListener('click', () => {
-        openGradingInterface(assignment, sub);
-      });
       gradeBtn.style.marginTop = '0.5rem';
+      gradeBtn.addEventListener('click', () => {
+        // Use dedicated grading page instead of modal
+        openGradeSubmissionPage(assignment, sub);
+      });
       div.appendChild(gradeBtn);
     }
-    content.appendChild(div);
-  });
+    return div;
+  }
+  // Clear existing content (except header and close button) before adding lists
+  // Remove any leftover elements from prior modal use beyond the header
+  const existing = Array.from(content.querySelectorAll(':scope > :not(.modal-header)'));
+  existing.forEach((el) => el.remove());
+  // Render ungraded submissions section
+  if (ungradedSubs.length) {
+    const ungradedHeader = document.createElement('h4');
+    ungradedHeader.textContent = 'Ungraded Submissions';
+    ungradedHeader.style.marginTop = '1rem';
+    content.appendChild(ungradedHeader);
+    ungradedSubs.forEach((sub) => {
+      content.appendChild(renderSubmission(sub));
+    });
+  }
+  // Render graded submissions section
+  if (gradedSubs.length) {
+    const gradedHeader = document.createElement('h4');
+    gradedHeader.textContent = 'Graded Submissions';
+    gradedHeader.style.marginTop = ungradedSubs.length ? '1rem' : '0';
+    content.appendChild(gradedHeader);
+    gradedSubs.forEach((sub) => {
+      content.appendChild(renderSubmission(sub));
+    });
+  }
 }
 
 function openGradingInterface(assignment, submission) {
@@ -3122,7 +3373,20 @@ function openGradingInterface(assignment, submission) {
   form.appendChild(clearBtn);
   form.appendChild(submitBtn);
   content.appendChild(form);
+  // Expose this grading interface globally. Without explicitly assigning
+  // to window, references in dynamically created event handlers (e.g.,
+  // assignment grading pages) may not resolve correctly, leading to
+  // unresponsive Grade/Regrade buttons. Assigning here ensures the
+  // function is available on the global object for later callbacks.
+  window.openGradingInterface = openGradingInterface;
 }
+
+// Expose the grading interface on the global object immediately after
+// definition. If we only assign it inside the function, it is not
+// available the first time a Grade/Regrade button is clicked. Setting
+// it here ensures that dynamically created event handlers can call
+// openGradingInterface even before the modal has been opened once.
+window.openGradingInterface = openGradingInterface;
 
 function setupDrawing(canvas) {
   const ctx = canvas.getContext('2d');
@@ -3274,4 +3538,294 @@ function openPdfModal(url, title = 'PDF Preview') {
     renderPage(pageNum);
   });
   modal.classList.remove('hidden');
+}
+
+/**
+ * Display a dedicated page for grading a single submission. This page shows
+ * the PDF with annotation capability, grade and comment inputs, and a
+ * submission form. After grading, the user is returned to the assignment
+ * grades page. The back button navigates back to the grades list without
+ * losing context.
+ *
+ * @param {Object} assignment
+ * @param {Object} submission
+ */
+async function openGradeSubmissionPage(assignment, submission) {
+  // Navigate to the grade submission section
+  showSection('grade-submission-section');
+  const backBtn = document.getElementById('backToGradesBtn');
+  backBtn.onclick = () => {
+    openAssignmentGradesPage(assignment);
+  };
+  // Update the page title
+  const titleEl = document.getElementById('gradeSubmissionTitle');
+  titleEl.textContent = `Grading – ${submission.studentName}`;
+  const container = document.getElementById('gradeSubmissionContent');
+  if (!container) return;
+  container.innerHTML = '';
+  // Provide a link to download the student's original submission PDF. This
+  // enables TAs to download the file for offline review if desired. We
+  // convert the stored file path into a relative URL and create an anchor.
+  if (submission.filePath) {
+    const downloadDiv = document.createElement('div');
+    downloadDiv.style.marginBottom = '1rem';
+    const fileRel = submission.filePath.replace(/.*uploads[\\/]/, 'uploads/').replace(/\\/g, '/');
+    const a = document.createElement('a');
+    a.href = '/' + fileRel;
+    a.textContent = 'Download Submission PDF';
+    a.target = '_blank';
+    a.className = 'btn-green';
+    downloadDiv.appendChild(a);
+    container.appendChild(downloadDiv);
+  }
+  // Controls for PDF viewer and annotation
+  const controls = document.createElement('div');
+  controls.className = 'pdf-viewer-controls';
+  const prevBtn = document.createElement('button'); prevBtn.textContent = 'Prev';
+  const nextBtn = document.createElement('button'); nextBtn.textContent = 'Next';
+  const zoomOutBtn = document.createElement('button'); zoomOutBtn.textContent = '–';
+  const zoomInBtn = document.createElement('button'); zoomInBtn.textContent = '+';
+  const pageInfo = document.createElement('span'); pageInfo.className = 'page-info';
+  controls.appendChild(prevBtn);
+  controls.appendChild(nextBtn);
+  controls.appendChild(zoomOutBtn);
+  controls.appendChild(zoomInBtn);
+  controls.appendChild(pageInfo);
+  container.appendChild(controls);
+  const pdfContainer = document.createElement('div'); pdfContainer.className = 'pdf-container';
+  const pdfCanvas = document.createElement('canvas');
+  const annotCanvas = document.createElement('canvas'); annotCanvas.className = 'pdf-annotation-canvas';
+  pdfContainer.appendChild(pdfCanvas);
+  pdfContainer.appendChild(annotCanvas);
+  container.appendChild(pdfContainer);
+  setupDrawing(annotCanvas);
+  let pdfDoc = null;
+  let currentPage = 1;
+  let scale = 1.0;
+  function renderPage(num) {
+    if (!pdfDoc) return;
+    pdfDoc.getPage(num).then((page) => {
+      const viewport = page.getViewport({ scale });
+      pdfCanvas.height = viewport.height;
+      pdfCanvas.width = viewport.width;
+      pdfContainer.style.height = viewport.height + 'px';
+      const ctx = pdfCanvas.getContext('2d');
+      page.render({ canvasContext: ctx, viewport });
+      annotCanvas.width = viewport.width;
+      annotCanvas.height = viewport.height;
+      const aCtx = annotCanvas.getContext('2d');
+      aCtx.clearRect(0, 0, annotCanvas.width, annotCanvas.height);
+      pageInfo.textContent = `Page ${currentPage} / ${pdfDoc.numPages}`;
+    });
+  }
+  function loadDocument() {
+    let fileUrl = submission.filePath;
+    fileUrl = fileUrl.replace(/.*uploads\//, 'uploads/').replace(/\\/g, '/');
+    const url = '/' + fileUrl;
+    pdfjsLib.getDocument(url).promise.then((doc) => {
+      pdfDoc = doc;
+      currentPage = 1;
+      scale = 1.0;
+      renderPage(currentPage);
+    });
+  }
+  prevBtn.onclick = () => {
+    if (!pdfDoc || currentPage <= 1) return;
+    currentPage--;
+    renderPage(currentPage);
+  };
+  nextBtn.onclick = () => {
+    if (!pdfDoc || currentPage >= pdfDoc.numPages) return;
+    currentPage++;
+    renderPage(currentPage);
+  };
+  zoomOutBtn.onclick = () => {
+    if (scale > 0.5) {
+      scale = Math.max(0.5, parseFloat((scale - 0.1).toFixed(2)));
+      renderPage(currentPage);
+    }
+  };
+  zoomInBtn.onclick = () => {
+    if (scale < 2.5) {
+      scale = Math.min(2.5, parseFloat((scale + 0.1).toFixed(2)));
+      renderPage(currentPage);
+    }
+  };
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+    loadDocument();
+  }
+  // Grade form container
+  const form = document.createElement('div');
+  form.className = 'grade-form';
+  form.style.marginTop = '1rem';
+  const gradeLabel = document.createElement('label'); gradeLabel.textContent = 'Grade (score):';
+  const gradeInput = document.createElement('input'); gradeInput.type = 'number'; gradeInput.min = '0'; gradeInput.max = '100'; gradeInput.value = submission.grade || '';
+  const commentLabel = document.createElement('label'); commentLabel.textContent = 'Comments:';
+  const commentInput = document.createElement('textarea'); commentInput.value = submission.comments || '';
+  const clearBtn = document.createElement('button'); clearBtn.textContent = 'Clear Annotations'; clearBtn.type = 'button'; clearBtn.className = 'btn-red';
+  clearBtn.onclick = () => {
+    const ctx = annotCanvas.getContext('2d');
+    ctx.clearRect(0, 0, annotCanvas.width, annotCanvas.height);
+  };
+  const submitBtn = document.createElement('button'); submitBtn.textContent = 'Submit Grade'; submitBtn.className = 'btn-blue';
+  submitBtn.onclick = async () => {
+    const gradeValue = gradeInput.value;
+    const comments = commentInput.value;
+    annotCanvas.toBlob(async (blob) => {
+      const formData = new FormData();
+      formData.append('grade', gradeValue);
+      formData.append('comments', comments);
+      if (blob && blob.size > 0) {
+        formData.append('annotation', blob, 'annotation.png');
+      }
+      const resp = await fetchAuth(`/api/assignments/${assignment.id}/submissions/${submission.id}/grade`, { method: 'POST', body: formData });
+      if (resp.ok) {
+        Swal && Swal.fire({ text: 'Grade submitted', icon: 'success', confirmButtonColor: '#007aff' });
+        openAssignmentGradesPage(assignment);
+      } else {
+        const msg = await resp.json();
+        Swal && Swal.fire({ text: msg.error || 'Failed to submit grade', icon: 'error', confirmButtonColor: '#ff3b30' });
+      }
+    });
+  };
+  form.appendChild(gradeLabel);
+  form.appendChild(gradeInput);
+  form.appendChild(commentLabel);
+  form.appendChild(commentInput);
+  form.appendChild(clearBtn);
+  form.appendChild(submitBtn);
+  container.appendChild(form);
+}
+
+// Expose the grading functions globally so that dynamically created event
+// handlers can access them. Without this, some event listeners may not
+// resolve the function name in the correct scope.
+window.openGradeSubmissionPage = openGradeSubmissionPage;
+
+/**
+ * Show a dedicated page for viewing and grading submissions for a single assignment.
+ * Ungraded submissions are listed first in chronological order, followed by graded submissions.
+ * TAs can click the Grade or Regrade buttons to open the grading interface.
+ *
+ * @param {Object} assignment
+ */
+async function openAssignmentGradesPage(assignment) {
+  // Switch to the assignment grades section
+  showSection('assignment-grades-section');
+  // Activate assignments nav button for visual consistency
+  const navBtn = document.querySelector('[data-section="assignments"]');
+  setActiveNav(navBtn);
+  const titleEl = document.getElementById('gradesPageTitle');
+  if (titleEl) {
+    titleEl.textContent = `Grade Submissions – ${assignment.title}`;
+  }
+  const listEl = document.getElementById('gradesList');
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  try {
+    const res = await fetch(`/api/assignments/${assignment.id}/submissions`);
+    const subs = await res.json();
+    if (!subs.length) {
+      const p = document.createElement('p');
+      p.textContent = 'No submissions yet.';
+      listEl.appendChild(p);
+      return;
+    }
+    // Split into ungraded and graded lists
+    const ungradedSubs = subs.filter((s) => !s.graded);
+    const gradedSubs = subs.filter((s) => s.graded);
+    ungradedSubs.sort((a, b) => new Date(a.uploadedAt) - new Date(b.uploadedAt));
+    gradedSubs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+    // Render helper
+    function renderCard(sub) {
+      const div = document.createElement('div');
+      div.className = 'grade-card';
+      div.style.padding = '0.75rem';
+      div.style.border = '1px solid #e5e5ea';
+      div.style.borderRadius = '8px';
+      div.style.marginBottom = '0.75rem';
+      const info = document.createElement('div');
+      let extra = '';
+      if (sub.studentID) extra += ` (ID: ${sub.studentID})`;
+      if (sub.studentNameZh) extra += ` ${sub.studentNameZh}`;
+      info.innerHTML = `<strong>${sub.studentName}${extra}</strong> &lt;${sub.studentEmail}&gt;`;
+      div.appendChild(info);
+      const meta = document.createElement('div');
+      meta.style.fontSize = '0.8rem';
+      meta.style.color = '#6e6e73';
+      meta.textContent = `Submitted: ${new Date(sub.uploadedAt).toLocaleString()}`;
+      div.appendChild(meta);
+      if (sub.graded) {
+        const gradeContainer = document.createElement('div');
+        gradeContainer.style.marginTop = '0.5rem';
+        gradeContainer.style.display = 'flex';
+        gradeContainer.style.flexDirection = 'column';
+        gradeContainer.style.gap = '0.25rem';
+        const gauge = renderGauge(Number(sub.grade));
+        gradeContainer.appendChild(gauge);
+        const cDiv = document.createElement('div');
+        cDiv.style.fontSize = '0.85rem';
+        cDiv.innerHTML = `<strong>Comments:</strong> ${sub.comments || '—'}`;
+        gradeContainer.appendChild(cDiv);
+        const btnRow = document.createElement('div');
+        btnRow.style.display = 'flex';
+        btnRow.style.gap = '0.5rem';
+        btnRow.style.marginTop = '0.5rem';
+        if (sub.feedbackPath) {
+          const feedbackRel = sub.feedbackPath.replace(/.*uploads\\/, 'uploads/').replace(/\\/g, '/');
+          const fbLink = document.createElement('a');
+          fbLink.href = '/' + feedbackRel;
+          fbLink.textContent = 'Download Feedback';
+          fbLink.target = '_blank';
+          fbLink.className = 'btn-green';
+          btnRow.appendChild(fbLink);
+        }
+        const regradeBtn = document.createElement('button');
+        regradeBtn.className = 'btn-yellow';
+        regradeBtn.textContent = 'Regrade';
+        regradeBtn.addEventListener('click', () => {
+          // Open dedicated grading page instead of modal
+          openGradeSubmissionPage(assignment, sub);
+        });
+        btnRow.appendChild(regradeBtn);
+        gradeContainer.appendChild(btnRow);
+        div.appendChild(gradeContainer);
+      } else {
+        const gBtn = document.createElement('button');
+        gBtn.className = 'btn-yellow';
+        gBtn.textContent = 'Grade';
+        gBtn.style.marginTop = '0.5rem';
+        gBtn.addEventListener('click', () => {
+          // Open dedicated grading page
+          openGradeSubmissionPage(assignment, sub);
+        });
+        div.appendChild(gBtn);
+      }
+      return div;
+    }
+    if (ungradedSubs.length) {
+      const hdr = document.createElement('h4');
+      hdr.textContent = 'Ungraded Submissions';
+      hdr.style.marginTop = '0';
+      listEl.appendChild(hdr);
+      ungradedSubs.forEach((s) => {
+        listEl.appendChild(renderCard(s));
+      });
+    }
+    if (gradedSubs.length) {
+      const hdr2 = document.createElement('h4');
+      hdr2.textContent = 'Graded Submissions';
+      hdr2.style.marginTop = ungradedSubs.length ? '1rem' : '0';
+      listEl.appendChild(hdr2);
+      gradedSubs.forEach((s) => {
+        listEl.appendChild(renderCard(s));
+      });
+    }
+  } catch (err) {
+    console.error('Failed to load submissions', err);
+    const p = document.createElement('p');
+    p.textContent = 'Failed to load submissions.';
+    listEl.appendChild(p);
+  }
 }

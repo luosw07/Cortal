@@ -180,6 +180,12 @@ section.page {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
   padding: 1rem;
   margin-bottom: 1rem;
+  /* Ensure assignment cards stack their content vertically so the details
+     come first, followed by the action row. This override applies
+     regardless of earlier definitions. */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .assignment-card h4 {
@@ -200,17 +206,19 @@ section.page {
 }
 
 .assignment-card .actions {
+  /* The actions container holds the buttons. Place them in a horizontal
+     row aligned to the right. Remove default vertical alignment. */
   display: flex;
-  align-items: center;
+  justify-content: flex-end;
   gap: 0.5rem;
   flex-wrap: wrap;
-  justify-content: flex-end;
   margin-top: 0.75rem;
 }
 
 .assignment-card .actions input[type="file"] {
-  flex: 1 1 auto;
-  max-width: 200px;
+  /* Hide the native file input to avoid double choose‑file buttons. The
+     custom upload row renders its own label and file name. */
+  display: none;
 }
 
 /* Download link for assignment PDF */
@@ -369,6 +377,11 @@ section.page {
 .file-name {
   font-size: 0.85rem;
   color: #6e6e73;
+}
+
+/* Hide native file inputs inside assignment cards to prevent duplicate Choose File buttons. We rely on custom labels instead. */
+.assignment-card input[type="file"] {
+  display: none;
 }
 
 /* Detailed section styling for assignment pages and other detailed views */
@@ -583,6 +596,21 @@ section.page {
 }
 .btn-red:hover {
   background-color: #d93025;
+}
+
+/* Neutral grey button used for file chooser labels */
+.btn-grey {
+  background-color: #e5e5ea;
+  color: #1d1d1f;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s ease;
+}
+.btn-grey:hover {
+  background-color: #d1d1d6;
 }
 
 /* Admin navigation */
@@ -822,4 +850,24 @@ section.page {
   .user-info {
     margin-top: 0.5rem;
   }
+}
+
+/* === Assignment card overrides ===
+   Ensure assignment cards stack their content vertically, with the details section
+   appearing first and the action buttons aligned to the bottom right. These rules
+   override earlier definitions for a consistent layout. */
+.assignment-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.assignment-card .details {
+  flex: 1;
+}
+.assignment-card .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
 }

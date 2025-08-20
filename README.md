@@ -1,77 +1,68 @@
 # Cortal – Course Portal
 
-Cortal is a web-based course portal built with **Node.js** (Express) and a lightweight **vanilla JavaScript** front end.  It supports password‑protected registration and login, pending student approval, announcements, assignments with PDF submissions and inline grading, resources, exams, a Markdown/LaTeX–enabled discussion forum with replies, and personalised grade dashboards.  The interface draws inspiration from Apple’s design language: clean cards, rounded buttons and subtle colours.
+Cortal is a lightweight web application for managing university courses. It provides a modern, Apple‑style interface for students and teaching assistants (TAs) to interact with course content, submit assignments, participate in discussions, and handle grading.  The project is built with **Node.js/Express** on the back end and vanilla JS/HTML/CSS on the front end.
 
 ## Features
 
-- **Announcements & Course Info** – Instructors can publish announcements and edit the course description.  Announcements appear on the home page and trigger both email and in‑app notifications.  Course information is displayed in a dedicated card on the home page.
+### For Students
 
-- **Registration & Login** – Users register with a name, email, password and role.  Students must also provide a student ID and Chinese name; teaching assistants register using an invitation code (`TA2025` by default).  Student registrations are stored as *pending* until approved by an administrator.  When a student registers, all admins receive an email and a notification.  Passwords are hashed with bcrypt.  Users can request a password reset: a time‑limited token is emailed to them, and they can reset the password without administrator involvement.
+* **Course homepage** – Browse course information and announcements with full Markdown and LaTeX support.
+* **Assignments** – Download assignment PDFs, upload your submission as a PDF (with replacement before grading), view your grade and feedback when available, and see an overall grade gauge on the home page.
+* **Exam notifications** – View upcoming exams with rich‑text descriptions (Markdown/LaTeX).
+* **Resources** – Download supplemental files; filter by tags.
+* **Discussion forum** – Post new threads, comment, and reply. Replies notify the original poster via email and in‑app notification.
+* **Notifications** – A bell icon shows unread notifications; clicking opens the notification list. Notifications link back to the relevant assignment or thread.
+* **Password reset** – Request a reset link via email and set a new password without admin approval.
 
-- **Assignments with Inline Grading** – Each assignment consists of a title, description (supports Markdown and LaTeX), due date and a PDF file.  On the assignment detail page students can view the PDF, upload their submission and preview it, and see their grade once graded.  Instructors annotate directly on the PDF using `pdf.js` and `pdf‑lib`, assign a numeric score and comment, and optionally upload a feedback file.  Grades are displayed as coloured gauges with seven bands (A+, A, A‑, B, C, D, Failed).
+### For TAs/Admins
 
-- **Assignment Dashboards** – Each assignment detail page includes a dashboard summarising class progress: number of submissions vs. total students, average grade and a bar chart showing the distribution across grade bands.  Students and teaching assistants see the same high‑level view.
+* **Student/TA roster** – View all registered users, approve pending students, and mute/unmute students directly from the list.
+* **Announcements, assignments, resources, exams** – Create, edit, and delete. Upload assignment PDFs and resources.
+* **Assignment grading** – Dedicated grading pages show ungraded and graded submissions. Annotate submissions with drawings, assign a grade and comments, and optionally upload feedback. After grading, the student receives an email/notification linking back to the assignment.
+* **Discussion moderation** – Delete or archive threads and comments. Mute users when necessary.
+* **Data export** – Export grades to CSV.
 
-- **Home Dashboard** – On the home page logged‑in students see their overall average grade across all graded assignments.  The dashboard uses the same coloured gauge to indicate the grade band (A+ ≥95, A 90–94, A‑ 85–89, B 80–84, C 70–79, D 60–69, Failed <60).
+## Installation
 
-- **Resources & Exams** – Instructors can upload resources (PDF, Word, etc.) with optional comma‑separated tags and set exam notifications.  Resources can be filtered by tag.  Exam notices display the title, date/time and description with Markdown/LaTeX support.
+### Prerequisites
 
-- **Discussion Forum with Replies** – Anyone can create discussion threads and comment using Markdown and LaTeX.  Comments may include file attachments (PDFs and images).  Users can reply to specific comments; replies are labelled “↳ Reply to …” and notifications are sent to the original author.  Teaching assistants are identified with a “TA” badge and can archive or delete posts and comments.
+* Node.js (v18 or higher recommended)
+* npm
+* (Optional) A mail provider supporting SMTP to send email notifications. If not configured, Cortal will fall back to logging emails to the console.
 
-- **Notifications** – All important events—new announcements, assignment submissions, grades posted, exam notices, new comments and replies—generate an email and an in‑app notification.  A bell icon shows the number of unread notifications; clicking it opens the notifications page.
+### Local Development
 
-- **Administration Panel** – Admin tasks are organised into tabs: Course Info, Announcements, Assignments, Resources, Exams, Discussions and Students.  Administrators can edit course information, publish and delete announcements, create and manage assignments/resources/exams, moderate discussions (archive/delete), approve or reject pending students, mute/unmute students and update the TA invitation code.  Grades can be exported to CSV.
-
-## Local Development
-
-1. **Install prerequisites** – Ensure [Node.js](https://nodejs.org/) (version 16 or later) and npm are installed on your machine.
-
-2. **Install dependencies**:
+1. Clone the repository and install dependencies:
 
    ```bash
-   cd course-portal
    npm install
    ```
 
-3. **Run the development server**:
+2. Copy `.env.example` to `.env` and fill in the following variables as needed:
+
+   ```ini
+   PORT=3000
+   JWT_SECRET=your‑secret
+   # SMTP configuration (optional but recommended)
+   SMTP_HOST=smtp.example.com
+   SMTP_PORT=465
+   SMTP_USER=your@example.com
+   SMTP_PASS=your‑smtp‑password
+   SMTP_FROM=Cortal <your@example.com>
+   PUBLIC_BASE_URL=http://localhost:3000
+   ```
+
+3. Run in development mode:
 
    ```bash
    npm run dev
    ```
 
-   The server runs on **http://localhost:3000** and automatically reloads on back‑end changes via nodemon.  Open this URL in your browser to access the portal.
+4. Open `http://localhost:3000` in your browser.  Use the register form to create a student or admin account (admins require the current TA invitation code available in the Admin dashboard).
 
-4. **First‑time registration** – When visiting the portal for the first time you will be prompted to register.  Students must provide a student ID and Chinese name; teaching assistants must supply the invitation code.  Student accounts remain pending until approved by an administrator.  Administrators can log in immediately.
+### Production Deployment
 
-5. **Data storage** – For demonstration purposes, data is held in memory and persisted to `server/data.json`.  Restarting the server retains data, but concurrent writes are not safe.  For production use a database.
-
-## Deployment
-
-1. **Prepare your server** – Install Node.js and npm on your CentOS/Ubuntu server.  Copy the `course-portal` directory to a location such as `/var/www/Cortal`.
-
-2. **Configure environment variables** – Create a `.env` file in the project root and set:
-
-   ```env
-   PORT=3000
-   JWT_SECRET=change-this-secret
-   PUBLIC_BASE_URL=https://your.domain
-   SMTP_HOST=smtp.example.com
-   SMTP_PORT=465
-   SMTP_USER=your-email@example.com
-   SMTP_PASS=your-smtp-password
-   SMTP_FROM=Cortal <your-email@example.com>
-   ```
-
-   `PUBLIC_BASE_URL` is used in password reset emails.  Configure the SMTP variables for Nodemailer so that emails are delivered; without them emails will be logged to the console.
-
-3. **Install dependencies**:
-
-   ```bash
-   cd /var/www/Cortal
-   npm install --production
-   ```
-
-4. **Run with PM2** (recommended):
+1. **Install PM2 (recommended)** to keep the Node process alive:
 
    ```bash
    sudo npm install -g pm2
@@ -80,31 +71,42 @@ Cortal is a web-based course portal built with **Node.js** (Express) and a light
    pm2 startup
    ```
 
-   PM2 keeps the Node.js process alive and restarts it on failure or reboot.  Use `pm2 logs cortal` to view logs.
-
-5. **Configure Nginx** – Install Nginx and add a reverse proxy configuration:
+2. **Nginx reverse proxy** (example):
 
    ```nginx
    server {
-       listen 80;
-       server_name your.domain;
-       location / {
-           proxy_pass http://127.0.0.1:3000;
-           proxy_http_version 1.1;
-           proxy_set_header Upgrade $http_upgrade;
-           proxy_set_header Connection "upgrade";
-           proxy_set_header Host $host;
-           proxy_cache_bypass $http_upgrade;
-       }
+     listen 80;
+     server_name your.domain;
+     location / {
+       proxy_pass http://127.0.0.1:3000;
+       proxy_http_version 1.1;
+       proxy_set_header Upgrade $http_upgrade;
+       proxy_set_header Connection "upgrade";
+       proxy_set_header Host $host;
+       proxy_cache_bypass $http_upgrade;
+     }
    }
    ```
 
-   Reload Nginx with `sudo systemctl reload nginx`.  For HTTPS, obtain a TLS certificate and adjust the server block accordingly.
+3. Configure SSL/TLS via Let’s Encrypt or your certificate provider.
 
-6. **Persistent storage** – To maintain data across restarts and support concurrent users, integrate a database.  Replace the in‑memory arrays in `server/index.js` with database queries and update functions.
+### Data Persistence
 
-7. **Email delivery** – Ensure your SMTP credentials are valid and outbound SMTP is allowed on your server.  You can test email delivery by requesting a password reset.
+User data, assignments, submissions, resources, exams, and notifications are stored in `server/data.json`.  This file is loaded at startup and saved whenever changes occur.  Back up this file to retain data across deployments.
+
+### Security Notes
+
+* Passwords are stored hashed using bcrypt.  Use a strong `JWT_SECRET`.
+* The admin role allows full control over course data.  Protect the TA invitation code.
+* SMTP credentials should be kept secret.
+
+## Usage Tips
+
+* Students must be approved by an admin before they can submit or post in forums.
+* TAs can mute a student to prevent them from posting or submitting; unmute to restore access.
+* The grading interface automatically merges annotations with the first page of the student’s PDF to produce feedback.  Annotate anywhere on the page before submitting the grade.
+* Notifications accumulate on the bell icon; click to view details.  Assignment‑related notifications link back to the assignment.
 
 ## License
 
-This project is licensed under the MIT License.
+This project is provided for educational purposes and may be modified freely.

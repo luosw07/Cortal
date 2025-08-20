@@ -179,9 +179,22 @@ function saveData() {
  * @param {string} email Recipient email
  * @param {string} message Message to display
  */
-function createNotification(email, message) {
+/**
+ * Create a new notification record for the specified user. Supports optional
+ * metadata such as assignmentId or threadId so that the client can
+ * navigate to the related page when the user clicks the notification. The
+ * extra argument may contain arbitrary key/value pairs which will be
+ * serialized into the notification object. For example:
+ * createNotification(email, 'Assignment graded', { assignmentId: '123' })
+ *
+ * @param {string} email Recipient email
+ * @param {string} message Message to display
+ * @param {object} [extra] Optional additional properties to include
+ */
+function createNotification(email, message, extra = {}) {
   const id = Date.now().toString();
-  notifications.push({ id, email, message, read: false, date: new Date().toISOString() });
+  const note = Object.assign({ id, email, message, read: false, date: new Date().toISOString() }, extra);
+  notifications.push(note);
 }
 
 // Discussion forum threads (in-memory). Each thread has fields:
@@ -625,6 +638,9 @@ app.post('/api/assignments/:assignmentId/submissions/:submissionId/grade', uploa
     body += `\nYou can download your feedback file here: ${feedbackUrl}`;
   }
   sendEmail(submission.studentEmail, subject, body);
+  // Create a notification that links to this assignment. The client uses
+  // assignmentId to navigate to the assignment detail page when clicked.
+  createNotification(submission.studentEmail, subject, { assignmentId });
   // Persist data after grading
   saveData();
   res.json({ message: 'Grading complete', feedbackPath: submission.feedbackPath });
@@ -1068,6 +1084,34 @@ app.get('/api/stats', (req, res) => {
     };
   });
   res.json(stats);
+});
+
+// ---------------------------------------------------------------------------
+// List all registered users (admin only)
+// This endpoint returns a list of all registered users. Each user entry
+// includes their name, email, role, studentId, studentNameZh, and whether
+// their student account has been approved. Admin accounts are always
+// considered approved. This allows administrators to view a roster of
+// students and teaching assistants.
+app.get('/api/users', authRequired, adminRequired, (req, res) => {
+  const list = users.map((u) => {
+    const isApproved = u.role === 'admin' || students.some((s) => s.email === u.email);
+    // Determine mute status from student or user record; default to false if undefined.
+    let isMuted = false;
+    const stuRec = students.find((s) => s.email === u.email);
+    if (stuRec && stuRec.muted) isMuted = true;
+    if (u.muted) isMuted = true;
+    return {
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      studentId: u.studentId,
+      studentNameZh: u.studentNameZh,
+      approved: isApproved,
+      muted: !!isMuted,
+    };
+  });
+  res.json(list);
 });
 
 /**
