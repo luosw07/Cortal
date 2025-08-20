@@ -79,55 +79,7 @@ const messages = [];
 // to set a new password. If the token matches and has not expired, the user
 // password hash is updated and the token entry is removed.
 
-// Request a password reset. Anyone may call this. A notification is sent to
-// admins that a reset has been requested. If the email does not exist, we
-// return success without revealing that.
-app.post('/api/auth/requestReset', (req, res) => {
-  const { email } = req.body || {};
-  if (!email) return res.status(400).json({ error: 'Email required' });
-  // Ensure user exists
-  const user = users.find(u => u.email === email);
-  if (!user) return res.json({ message: 'If this email exists, a reset link has been sent' });
-  // Clean expired tokens
-  const now = Date.now();
-  for (let i = resetTokens.length - 1; i >= 0; i--) {
-    if (resetTokens[i].expiresAt < now) resetTokens.splice(i, 1);
-  }
-  // Generate new token
-  const token = require('crypto').randomBytes(24).toString('hex');
-  const expiresAt = now + 1000 * 60 * 30; // 30 minutes
-  resetTokens.push({ email, token, expiresAt });
-  const resetLink = `${process.env.PUBLIC_BASE_URL || req.protocol + '://' + req.get('host')}/#reset?email=${encodeURIComponent(email)}&token=${token}`;
-  // Send reset email
-  sendEmail(email, 'Password reset request', `Click the link to reset your password:\n${resetLink}`);
-  // Also send notification
-  createNotification(email, 'Password reset link sent');
-  res.json({ message: 'Reset link sent' });
-});
-
-// Reset password via token
-app.post('/api/auth/reset', async (req, res) => {
-  const { email, token, newPassword } = req.body || {};
-  if (!email || !token || !newPassword) {
-    return res.status(400).json({ error: 'Email, token and new password are required' });
-  }
-  // Clean expired tokens
-  const now = Date.now();
-  for (let i = resetTokens.length - 1; i >= 0; i--) {
-    if (resetTokens[i].expiresAt < now) resetTokens.splice(i, 1);
-  }
-  // Find token entry
-  const entryIndex = resetTokens.findIndex(t => t.email === email && t.token === token);
-  if (entryIndex === -1) return res.status(400).json({ error: 'Invalid or expired token' });
-  const user = users.find(u => u.email === email);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  user.passwordHash = await bcrypt.hash(newPassword, 10);
-  // Remove token entry
-  resetTokens.splice(entryIndex, 1);
-  saveData();
-  sendEmail(email, 'Password reset successful', 'Your password has been reset successfully.');
-  res.json({ message: 'Password has been reset successfully' });
-});
+// NOTE: The password reset routes are registered after the Express app is created.
 
 // Data persistence: path to save/load application state. This enables the server
 // to retain announcements, assignments, submissions and other entities across
@@ -416,6 +368,65 @@ app.post('/api/auth/login', async (req, res) => {
   }
   const token = generateToken(user);
   return res.json({ token, user: { name: user.name, email: user.email, role: user.role, approved: user.approved, studentId: user.studentId, studentNameZh: user.studentNameZh } });
+});
+
+// ---------------------------------------------------------------------------
+// Password reset routes
+// These endpoints are registered after the Express app instance is created.
+//
+// Request a password reset. Users submit their email; if the address exists,
+// a 30‑minute token is generated and emailed to them. No admin approval is
+// required. A generic success message is returned even if the email does not
+// exist to prevent user enumeration.
+app.post('/api/auth/requestReset', (req, res) => {
+  const { email } = req.body || {};
+  if (!email) return res.status(400).json({ error: 'Email required' });
+  const user = users.find((u) => u.email === email);
+  if (!user) {
+    return res.json({ message: 'If this email exists, a reset link has been sent' });
+  }
+  // Remove expired tokens
+  const now = Date.now();
+  for (let i = resetTokens.length - 1; i >= 0; i--) {
+    if (resetTokens[i].expiresAt < now) resetTokens.splice(i, 1);
+  }
+  const token = require('crypto').randomBytes(24).toString('hex');
+  const expiresAt = now + 1000 * 60 * 30; // 30 minutes
+  resetTokens.push({ email, token, expiresAt });
+  const resetLink =
+    `${process.env.PUBLIC_BASE_URL || req.protocol + '://' + req.get('host')}` +
+    `/#reset?email=${encodeURIComponent(email)}&token=${token}`;
+  // Send reset email and notify user
+  sendEmail(email, 'Password reset request', `Click the link to reset your password:\n${resetLink}`);
+  createNotification(email, 'Password reset link sent');
+  res.json({ message: 'Reset link sent' });
+});
+
+// Reset password with a valid token. Updates the user’s password hash, removes
+// the token entry and notifies the user of success.
+app.post('/api/auth/reset', async (req, res) => {
+  const { email, token, newPassword } = req.body || {};
+  if (!email || !token || !newPassword) {
+    return res.status(400).json({ error: 'Email, token and new password are required' });
+  }
+  // Clean expired tokens
+  const now = Date.now();
+  for (let i = resetTokens.length - 1; i >= 0; i--) {
+    if (resetTokens[i].expiresAt < now) resetTokens.splice(i, 1);
+  }
+  const entryIndex = resetTokens.findIndex((t) => t.email === email && t.token === token);
+  if (entryIndex === -1) {
+    return res.status(400).json({ error: 'Invalid or expired token' });
+  }
+  const user = users.find((u) => u.email === email);
+  if (!user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  user.passwordHash = await bcrypt.hash(newPassword, 10);
+  resetTokens.splice(entryIndex, 1);
+  saveData();
+  sendEmail(email, 'Password reset successful', 'Your password has been reset successfully.');
+  res.json({ message: 'Password has been reset successfully' });
 });
 
 /*
