@@ -1,34 +1,30 @@
-# Foundations of Algebra Course Portal
+# Cortal – Course Portal
 
-This repository contains a dynamic web portal for the **Foundations of Algebra** course.  It is built with an **Express/Node.js** back end and a lightweight vanilla JavaScript front end styled after Apple’s Human Interface Guidelines.  The portal allows instructors to post announcements and assignments, manage resources and exams, moderate discussions, review and grade PDF submissions, and communicate privately with students.  Students can register, browse materials, submit assignments as PDFs, participate in discussion forums and view their scores.  A notification system keeps everyone informed of important events via email and an in‑app bell.
+Cortal is a web-based course portal built with **Node.js** (Express) and a lightweight **vanilla JavaScript** front end.  It supports password‑protected registration and login, pending student approval, announcements, assignments with PDF submissions and inline grading, resources, exams, a Markdown/LaTeX–enabled discussion forum with replies, and personalised grade dashboards.  The interface draws inspiration from Apple’s design language: clean cards, rounded buttons and subtle colours.
 
-## Key Features
+## Features
 
-- **Announcements** – Instructors can publish course announcements.  Emails are sent to registered users and announcements are visible on the home page for guests.
+- **Announcements & Course Info** – Instructors can publish announcements and edit the course description.  Announcements appear on the home page and trigger both email and in‑app notifications.  Course information is displayed in a dedicated card on the home page.
 
-- **Assignments with Inline Grading** – Each assignment has a dedicated detail page with three panels: (1) a multi‑page PDF viewer powered by `pdf.js`; (2) a submission panel with a polished upload control that previews the student’s PDF; and (3) a grading panel displaying the score, comments and a download link for the merged feedback file.  Teaching assistants annotate directly on top of the PDF and assign grades; the annotations are merged into the PDF using `pdf‑lib`.
+- **Registration & Login** – Users register with a name, email, password and role.  Students must also provide a student ID and Chinese name; teaching assistants register using an invitation code (`TA2025` by default).  Student registrations are stored as *pending* until approved by an administrator.  When a student registers, all admins receive an email and a notification.  Passwords are hashed with bcrypt.  Users can request a password reset: a time‑limited token is emailed to them, and they can reset the password without administrator involvement.
 
-- **Resource Downloads** – Course notes, problem sets and other files can be uploaded by instructors and downloaded by students.  Files live under the `server/uploads/resources` directory.
+- **Assignments with Inline Grading** – Each assignment consists of a title, description (supports Markdown and LaTeX), due date and a PDF file.  On the assignment detail page students can view the PDF, upload their submission and preview it, and see their grade once graded.  Instructors annotate directly on the PDF using `pdf.js` and `pdf‑lib`, assign a numeric score and comment, and optionally upload a feedback file.  Grades are displayed as coloured gauges with seven bands (A+, A, A‑, B, C, D, Failed).
 
-- **Exam Notifications** – Upcoming assessments can be added with a title, date/time and description.  They appear on the exams page and notify all students.
+- **Assignment Dashboards** – Each assignment detail page includes a dashboard summarising class progress: number of submissions vs. total students, average grade and a bar chart showing the distribution across grade bands.  Students and teaching assistants see the same high‑level view.
 
-**Enhanced Registration & Permissions** – Users create accounts with a **password**.  Students must provide their name, email, student ID and Chinese name.  Registrations require **administrator approval**; pending students can browse the site but cannot post or submit assignments.  Teaching assistants register via a configurable invitation code (`TA2025` by default).  Passwords are hashed on the server using bcrypt and a JWT token is issued upon successful login.  The token must accompany protected API requests.
+- **Home Dashboard** – On the home page logged‑in students see their overall average grade across all graded assignments.  The dashboard uses the same coloured gauge to indicate the grade band (A+ ≥95, A 90–94, A‑ 85–89, B 80–84, C 70–79, D 60–69, Failed <60).
 
-- **Discussion Forum** – Users can start discussion threads and post comments with Markdown/LaTeX formatting and optional file attachments.  Each thread opens in its own page showing the original post, attachments and chronological comments.  Teaching assistants are labelled with a “TA” badge and can archive or delete threads/comments.  Administrators can also **mute** students by student ID, preventing them from posting or submitting until unmuted.
+- **Resources & Exams** – Instructors can upload resources (PDF, Word, etc.) with optional comma‑separated tags and set exam notifications.  Resources can be filtered by tag.  Exam notices display the title, date/time and description with Markdown/LaTeX support.
 
-- **Grades & Statistics** – A dedicated **Scores** page presents each assignment in a card with a progress bar showing the average grade and the number of graded submissions.  Students can quickly gauge how they compare to the class, while administrators see the same dashboard for high‑level insight.
+- **Discussion Forum with Replies** – Anyone can create discussion threads and comment using Markdown and LaTeX.  Comments may include file attachments (PDFs and images).  Users can reply to specific comments; replies are labelled “↳ Reply to …” and notifications are sent to the original author.  Teaching assistants are identified with a “TA” badge and can archive or delete posts and comments.
 
-- **Private Messaging** – Users can send private messages to any email address.  The **Messages** page has been redesigned as a chat interface: conversations appear in a sidebar, unread counts are indicated with badges, and selecting a conversation opens a chat window with coloured bubbles for sent and received messages.  Sending a new message automatically refreshes the conversation.  The recipient receives an email and an in‑app notification.
+- **Notifications** – All important events—new announcements, assignment submissions, grades posted, exam notices, new comments and replies—generate an email and an in‑app notification.  A bell icon shows the number of unread notifications; clicking it opens the notifications page.
 
-- **Notifications** – Important actions (submissions, grades posted, new announcements, exam notices, new messages) generate both an email and an in‑app notification.  A bell icon with a "Notifications" label shows the number of unread notifications.  Clicking the bell reveals a quick panel, and the main **Notifications** page lists all messages with timestamps and read status.
-
-- **Administration Panel** – Management tasks are organised into separate tabs (Course Info, Announcements, Assignments, Resources, Exams, Discussions and Students) instead of a single long page.  Administrators can edit course information, publish announcements, create assignments/exams/resources, moderate discussions, review grade statistics, adjust the TA invitation code, approve or reject pending student registrations, and mute or unmute students.
-
-- **Apple‑Inspired Design** – The front end uses system fonts, light colours, translucent panels and rounded cards to echo Apple’s design language.  The interface scales gracefully from desktop to mobile screens.
+- **Administration Panel** – Admin tasks are organised into tabs: Course Info, Announcements, Assignments, Resources, Exams, Discussions and Students.  Administrators can edit course information, publish and delete announcements, create and manage assignments/resources/exams, moderate discussions (archive/delete), approve or reject pending students, mute/unmute students and update the TA invitation code.  Grades can be exported to CSV.
 
 ## Local Development
 
-1. **Install prerequisites** – Ensure you have [Node.js](https://nodejs.org/) (version 14 or later) and npm installed.
+1. **Install prerequisites** – Ensure [Node.js](https://nodejs.org/) (version 16 or later) and npm are installed on your machine.
 
 2. **Install dependencies**:
 
@@ -37,71 +33,78 @@ This repository contains a dynamic web portal for the **Foundations of Algebra**
    npm install
    ```
 
-3. **Start the development server**:
+3. **Run the development server**:
 
    ```bash
    npm run dev
    ```
 
-   The server runs on **http://localhost:3000**.  During development it automatically reloads on back‑end changes via nodemon.  Open this URL in your browser to access the portal.
+   The server runs on **http://localhost:3000** and automatically reloads on back‑end changes via nodemon.  Open this URL in your browser to access the portal.
 
-4. **First‑time registration** – When visiting the portal for the first time you will be prompted to enter your name, email and role.  Students must provide a student ID and Chinese name.  Teaching assistants need a valid invitation code (the default is `TA2025`; administrators can change it).  Student registrations are stored as *pending* until an administrator approves them in the admin panel.
+4. **First‑time registration** – When visiting the portal for the first time you will be prompted to register.  Students must provide a student ID and Chinese name; teaching assistants must supply the invitation code.  Student accounts remain pending until approved by an administrator.  Administrators can log in immediately.
 
-5. **Data storage** – For demonstration purposes, all data lives in in‑memory arrays.  Restarting the server will reset announcements, assignments, submissions, forum posts and registration state.  For persistent storage you would integrate a database (e.g. PostgreSQL) and replace the in‑memory data structures.
+5. **Data storage** – For demonstration purposes, data is held in memory and persisted to `server/data.json`.  Restarting the server retains data, but concurrent writes are not safe.  For production use a database.
 
 ## Deployment
 
-To deploy the portal on a server you may follow these general steps:
+1. **Prepare your server** – Install Node.js and npm on your CentOS/Ubuntu server.  Copy the `course-portal` directory to a location such as `/var/www/Cortal`.
 
-1. **Prepare the environment** – Install Node.js on your server and clone or copy the `course-portal` directory.  In production you should set environment variables such as `PORT` and credentials for an SMTP server (see below).
+2. **Configure environment variables** – Create a `.env` file in the project root and set:
 
-2. **Configure email** – The current implementation uses Nodemailer’s *stream* transport, which writes outgoing emails to the console.  In a real deployment you should configure an SMTP transport:
-
-   ```js
-   const transporter = nodemailer.createTransport({
-     host: 'smtp.example.com',
-     port: 587,
-     secure: false,
-     auth: {
-       user: process.env.SMTP_USER,
-       pass: process.env.SMTP_PASS,
-     },
-   });
+   ```env
+   PORT=3000
+   JWT_SECRET=change-this-secret
+   PUBLIC_BASE_URL=https://your.domain
+   SMTP_HOST=smtp.example.com
+   SMTP_PORT=465
+   SMTP_USER=your-email@example.com
+   SMTP_PASS=your-smtp-password
+   SMTP_FROM=Cortal <your-email@example.com>
    ```
 
-   Store your SMTP credentials in environment variables and never commit them to source control.
+   `PUBLIC_BASE_URL` is used in password reset emails.  Configure the SMTP variables for Nodemailer so that emails are delivered; without them emails will be logged to the console.
 
 3. **Install dependencies**:
 
    ```bash
-   cd course-portal
+   cd /var/www/Cortal
    npm install --production
    ```
 
-4. **Run the server** – Use the built‑in start script to launch the app:
+4. **Run with PM2** (recommended):
 
    ```bash
-   npm start
+   sudo npm install -g pm2
+   pm2 start server/index.js --name cortal
+   pm2 save
+   pm2 startup
    ```
 
-   Or run `node server/index.js` directly.  The application will listen on the port defined by `PORT` (default 3000).
+   PM2 keeps the Node.js process alive and restarts it on failure or reboot.  Use `pm2 logs cortal` to view logs.
 
-5. **Reverse proxy and SSL** – In a production environment you should run the Node.js process behind a reverse proxy like Nginx or Apache, handle HTTPS termination, and proxy requests to the Node server.  Refer to your proxy’s documentation for configuration details.
+5. **Configure Nginx** – Install Nginx and add a reverse proxy configuration:
 
-6. **Persistence** – To retain data across restarts you should integrate a database.  Replace the in‑memory arrays in `server/index.js` with database queries and updates.  You may also wish to store uploaded files in a cloud storage service.
+   ```nginx
+   server {
+       listen 80;
+       server_name your.domain;
+       location / {
+           proxy_pass http://127.0.0.1:3000;
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection "upgrade";
+           proxy_set_header Host $host;
+           proxy_cache_bypass $http_upgrade;
+       }
+   }
+   ```
 
-## Additional Feature Ideas
+   Reload Nginx with `sudo systemctl reload nginx`.  For HTTPS, obtain a TLS certificate and adjust the server block accordingly.
 
-This portal implements many core features of modern learning management systems, but there is room to grow.  Below are some suggestions inspired by platforms like Canvas and Gradescope.  If you would like to add any of these, please let me know:
+6. **Persistent storage** – To maintain data across restarts and support concurrent users, integrate a database.  Replace the in‑memory arrays in `server/index.js` with database queries and update functions.
 
-- **Rubrics & Structured Grading** – Define detailed scoring criteria for each assignment so that graders apply consistent standards and students understand how their work is evaluated.
-- **Group Assignments & Peer Review** – Allow students to submit work in teams and review each other’s submissions, similar to Canvas’s group and peer review tools.
-- **Calendar Integration** – Provide calendar feeds for assignment deadlines and exam dates that students can subscribe to in Outlook or Google Calendar.
-- **Analytics Dashboard** – Generate charts showing grade distributions, submission timelines and forum engagement to help instructors monitor course progress.
-- **Export & Backup** – Offer administrators the ability to export grades, forum posts and resources as CSV or PDF for archiving.
-
-Feel free to suggest other improvements!  This project is intentionally modular so new pages, modules and APIs can be added with minimal disruption.
+7. **Email delivery** – Ensure your SMTP credentials are valid and outbound SMTP is allowed on your server.  You can test email delivery by requesting a password reset.
 
 ## License
 
-This project is released under the MIT License.
+This project is licensed under the MIT License.

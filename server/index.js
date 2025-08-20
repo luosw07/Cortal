@@ -42,11 +42,9 @@ const notifications = [];
 // start as approved=false and must be approved by an admin via pendingStudents.
 const users = [];
 
-// Password reset requests. Each entry: { email, approved: boolean }
-const resetRequests = [];
-
-const app = express();
-const PORT = process.env.PORT || 3000;
+// Password reset tokens for self‑service reset (no admin approval).
+// Each entry: { email, token, expiresAt }
+const resetTokens = [];
 
 // Student registration and management
 // Pending student registrations awaiting admin approval
@@ -69,64 +67,65 @@ const messages = [];
 // -----------------------------------------------------------------------------
 // Password reset workflow
 // -----------------------------------------------------------------------------
-// A user can request a password reset by submitting their email to
-// /api/auth/requestReset. The request is stored in resetRequests and must be
-// approved by an admin via /api/admin/resetRequests/:email/approve. Once
-// approved, the user can reset their password by calling /api/auth/resetPassword
-// with email and newPassword. The approved request is removed upon success.
+// Password reset workflow
+//
+// A user may request a password reset by submitting their email to
+// /api/auth/requestReset. A unique token is generated and emailed to the user
+// with a link that includes the token and email query parameters. Tokens
+// expire after 30 minutes. The reset request does not require administrator
+// approval.
+//
+// The client should POST to /api/auth/reset with { email, token, newPassword }
+// to set a new password. If the token matches and has not expired, the user
+// password hash is updated and the token entry is removed.
 
 // Request a password reset. Anyone may call this. A notification is sent to
 // admins that a reset has been requested. If the email does not exist, we
 // return success without revealing that.
 app.post('/api/auth/requestReset', (req, res) => {
-  const { email } = req.body;
+  const { email } = req.body || {};
   if (!email) return res.status(400).json({ error: 'Email required' });
-  // If already pending, do nothing
-  const existing = resetRequests.find((r) => r.email === email);
-  if (!existing) {
-    resetRequests.push({ email, approved: false });
-    // Notify admins of pending reset
-    users.forEach((u) => {
-      if (u.role === 'admin') {
-        createNotification(u.email, `Password reset requested for ${email}`);
-      }
-    });
-    saveData();
+  // Ensure user exists
+  const user = users.find(u => u.email === email);
+  if (!user) return res.json({ message: 'If this email exists, a reset link has been sent' });
+  // Clean expired tokens
+  const now = Date.now();
+  for (let i = resetTokens.length - 1; i >= 0; i--) {
+    if (resetTokens[i].expiresAt < now) resetTokens.splice(i, 1);
   }
-  res.json({ message: 'Reset request submitted. Wait for admin approval.' });
+  // Generate new token
+  const token = require('crypto').randomBytes(24).toString('hex');
+  const expiresAt = now + 1000 * 60 * 30; // 30 minutes
+  resetTokens.push({ email, token, expiresAt });
+  const resetLink = `${process.env.PUBLIC_BASE_URL || req.protocol + '://' + req.get('host')}/#reset?email=${encodeURIComponent(email)}&token=${token}`;
+  // Send reset email
+  sendEmail(email, 'Password reset request', `Click the link to reset your password:\n${resetLink}`);
+  // Also send notification
+  createNotification(email, 'Password reset link sent');
+  res.json({ message: 'Reset link sent' });
 });
 
-// Admin: list all pending password reset requests
-app.get('/api/admin/resetRequests', authRequired, adminRequired, (req, res) => {
-  res.json(resetRequests);
-});
-
-// Admin: approve a password reset for a given email
-app.post('/api/admin/resetRequests/:email/approve', authRequired, adminRequired, (req, res) => {
-  const email = req.params.email;
-  const reqIndex = resetRequests.findIndex((r) => r.email === email);
-  if (reqIndex === -1) return res.status(404).json({ error: 'Reset request not found' });
-  resetRequests[reqIndex].approved = true;
-  // Notify user via email and notification
-  sendEmail(email, 'Password reset approved', 'An administrator has approved your password reset request. You can now set a new password in the course portal.');
-  createNotification(email, 'Password reset approved');
-  saveData();
-  res.json({ message: 'Reset approved' });
-});
-
-// Reset password after approval. Requires email and newPassword.
-app.post('/api/auth/resetPassword', async (req, res) => {
-  const { email, newPassword } = req.body;
-  if (!email || !newPassword) return res.status(400).json({ error: 'Email and new password required' });
-  const reqObj = resetRequests.find((r) => r.email === email && r.approved);
-  if (!reqObj) return res.status(403).json({ error: 'No approved reset request for this email' });
-  const user = users.find((u) => u.email === email);
+// Reset password via token
+app.post('/api/auth/reset', async (req, res) => {
+  const { email, token, newPassword } = req.body || {};
+  if (!email || !token || !newPassword) {
+    return res.status(400).json({ error: 'Email, token and new password are required' });
+  }
+  // Clean expired tokens
+  const now = Date.now();
+  for (let i = resetTokens.length - 1; i >= 0; i--) {
+    if (resetTokens[i].expiresAt < now) resetTokens.splice(i, 1);
+  }
+  // Find token entry
+  const entryIndex = resetTokens.findIndex(t => t.email === email && t.token === token);
+  if (entryIndex === -1) return res.status(400).json({ error: 'Invalid or expired token' });
+  const user = users.find(u => u.email === email);
   if (!user) return res.status(404).json({ error: 'User not found' });
   user.passwordHash = await bcrypt.hash(newPassword, 10);
-  // Remove reset request
-  const idx = resetRequests.findIndex((r) => r.email === email);
-  if (idx !== -1) resetRequests.splice(idx, 1);
+  // Remove token entry
+  resetTokens.splice(entryIndex, 1);
   saveData();
+  sendEmail(email, 'Password reset successful', 'Your password has been reset successfully.');
   res.json({ message: 'Password has been reset successfully' });
 });
 
@@ -159,7 +158,7 @@ function loadData() {
         messages: [],
         courseInfo: courseInfo,
         taInvitationCode: global.taInvitationCode,
-        resetRequests: []
+        resetTokens: []
       }, null, 2));
     }
     const raw = fs.readFileSync(DATA_FILE, 'utf8');
@@ -176,7 +175,10 @@ function loadData() {
     students.splice(0, students.length, ...(data.students || []));
     forumThreads.splice(0, forumThreads.length, ...(data.forumThreads || []));
     messages.splice(0, messages.length, ...(data.messages || []));
-    resetRequests.splice(0, resetRequests.length, ...(data.resetRequests || []));
+    // For backwards compatibility, ignore loading legacy resetRequests from data file
+    if (Array.isArray(data.resetTokens)) {
+      resetTokens.splice(0, resetTokens.length, ...data.resetTokens);
+    }
     if (data.courseInfo) {
       courseInfo = data.courseInfo;
     }
@@ -210,7 +212,7 @@ function saveData() {
       messages,
       courseInfo,
       taInvitationCode: global.taInvitationCode,
-      resetRequests
+      resetTokens
     };
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
   } catch (err) {
@@ -275,6 +277,25 @@ function adminRequired(req, res, next) {
   next();
 }
 
+/**
+ * Compute grade band and colour for a numeric score according to course policy.
+ * Categories: A+ (95+), A (90–94), A- (85–89), B (80–84), C (70–79),
+ * D (60–69), Failed (0–59). Colours approximate iOS accent colours.
+ *
+ * @param {number} score Value from 0 to 100.
+ * @returns {object} { label: string, color: string }
+ */
+function gradeBand(score) {
+  const s = Number(score);
+  if (s >= 95) return { label: 'A+', color: '#34C759' };
+  if (s >= 90) return { label: 'A', color: '#30B158' };
+  if (s >= 85) return { label: 'A-', color: '#28A745' };
+  if (s >= 80) return { label: 'B', color: '#5AC8FA' };
+  if (s >= 70) return { label: 'C', color: '#FFCC00' };
+  if (s >= 60) return { label: 'D', color: '#FF9F0A' };
+  return { label: 'Failed', color: '#FF3B30' };
+}
+
 // Create uploads directory if it does not exist
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
@@ -309,7 +330,8 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-
+const app = express();
+const PORT = process.env.PORT || 3000;
 
 // Load persisted data on startup
 loadData();
@@ -355,6 +377,17 @@ app.post('/api/auth/register', async (req, res) => {
   users.push(user);
   // Notify user of pending status
   createNotification(email, 'Registration submitted – pending approval');
+  // Notify all admins via email and in‑app notification that a new pending account exists
+  try {
+    users.forEach((u) => {
+      if (u.role === 'admin') {
+        // Send email to admin
+        sendEmail(u.email, 'New student registration pending', `${name} (${email}) has registered and is awaiting approval.`);
+      }
+    });
+  } catch (e) {
+    console.error('Failed to notify admins about pending registration', e);
+  }
   const token = generateToken(user);
   return res.status(201).json({ token, user: { name, email, role: 'student', approved: false, studentId, studentNameZh } });
 });
@@ -623,6 +656,49 @@ app.post('/api/exams', authRequired, adminRequired, (req, res) => {
 });
 
 /**
+ * Get the authenticated user's overall grade statistics. Calculates the
+ * average of all graded submissions for the user and maps it to a grade band.
+ * Returns { avg: number | null, band: string | null, count: number }.
+ */
+app.get('/api/grades/overall', authRequired, (req, res) => {
+  const email = req.user.email;
+  const mySubs = submissions.filter(s => s.studentEmail === email && s.graded);
+  if (!mySubs.length) {
+    return res.json({ avg: null, band: null, count: 0 });
+  }
+  const total = mySubs.reduce((acc, s) => acc + Number(s.grade || 0), 0);
+  const avg = total / mySubs.length;
+  const bandInfo = gradeBand(avg);
+  res.json({ avg, band: bandInfo.label, color: bandInfo.color, count: mySubs.length });
+});
+
+/**
+ * Get aggregate statistics for a specific assignment. Provides total submitted,
+ * total registered users (students), average grade for graded submissions,
+ * and counts per grade band. Returns { submitted, totalUsers, avg, bands }.
+ */
+app.get('/api/assignments/:id/stats', authRequired, (req, res) => {
+  const assignmentId = req.params.id;
+  const subsForAssignment = submissions.filter(s => s.assignmentId === assignmentId);
+  const gradedSubs = subsForAssignment.filter(s => s.graded);
+  const totalUsers = users.filter(u => u.role !== 'admin').length || 1;
+  const submitted = subsForAssignment.length;
+  let avg = null;
+  if (gradedSubs.length) {
+    const sum = gradedSubs.reduce((acc, s) => acc + Number(s.grade || 0), 0);
+    avg = sum / gradedSubs.length;
+  }
+  const bands = { 'A+': 0, 'A': 0, 'A-': 0, 'B': 0, 'C': 0, 'D': 0, 'Failed': 0 };
+  gradedSubs.forEach(s => {
+    const info = gradeBand(s.grade);
+    if (bands.hasOwnProperty(info.label)) {
+      bands[info.label]++;
+    }
+  });
+  res.json({ submitted, totalUsers, avg, bands });
+});
+
+/**
  * Update TA invitation code. Requires admin authentication. The new code is
  * stored in memory (global.taInvitationCode) and returned in the response.
  */
@@ -707,7 +783,7 @@ app.get('/api/forum/:id', (req, res) => {
 app.post('/api/forum/:id/comments', authRequired, upload.single('file'), (req, res) => {
   const thread = forumThreads.find((t) => t.id === req.params.id);
   if (!thread) return res.status(404).json({ error: 'Thread not found' });
-  const { content, authorName, authorEmail } = req.body;
+  const { content, authorName, authorEmail, replyTo } = req.body;
   if (!content || !authorName || !authorEmail) {
     return res.status(400).json({ error: 'Missing fields' });
   }
@@ -726,8 +802,39 @@ app.post('/api/forum/:id/comments', authRequired, upload.single('file'), (req, r
     content,
     date: new Date().toISOString(),
     attachmentPath: req.file ? req.file.path : null,
+    replyTo: replyTo || null,
   };
   thread.comments.push(comment);
+  // Notify the target author
+  try {
+    let targetEmail = null;
+    let targetName = null;
+    if (replyTo) {
+      if (replyTo === thread.id) {
+        // Replying to thread
+        targetEmail = thread.authorEmail;
+        targetName = thread.authorName;
+      } else {
+        // Find the replied comment
+        const target = thread.comments.find((c) => c.id === replyTo);
+        if (target) {
+          targetEmail = target.authorEmail;
+          targetName = target.authorName;
+        }
+      }
+    } else {
+      // Direct comment on thread; notify thread author
+      targetEmail = thread.authorEmail;
+      targetName = thread.authorName;
+    }
+    if (targetEmail && targetEmail !== authorEmail) {
+      const subj = 'New reply in discussion';
+      const text = `${authorName} replied to your post/comment:\n${content}`;
+      sendEmail(targetEmail, subj, text);
+    }
+  } catch (e) {
+    console.error('Failed to send reply notification', e);
+  }
   res.status(201).json({ id: comment.id });
   // Persist changes
   saveData();
@@ -1006,6 +1113,126 @@ app.put('/api/messages/:id/read', (req, res) => {
 app.get('/api/admins', authRequired, (req, res) => {
   const admins = users.filter(u => u.role === 'admin').map(u => ({ name: u.name, email: u.email }));
   res.json(admins);
+});
+
+// -----------------------------------------------------------------------------
+// Update endpoints for announcements, assignments, resources, and exams.
+// These allow an admin/TA to modify existing entries. Only provided fields will
+// be updated; other properties remain unchanged. For assignments and resources
+// a new file may be uploaded to replace the original. All update routes
+// require authentication and admin privileges.
+//
+// Update announcement by ID
+app.put('/api/announcements/:id', authRequired, adminRequired, (req, res) => {
+  const { id } = req.params;
+  const ann = announcements.find(a => a.id == id);
+  if (!ann) return res.status(404).json({ error: 'Announcement not found' });
+  const { title, content } = req.body;
+  if (title) ann.title = title;
+  if (content) ann.content = content;
+  // Update date to reflect modification
+  ann.date = new Date().toISOString();
+  saveData();
+  res.json(ann);
+});
+
+// Update assignment by ID. Accept optional new PDF file; update title,
+// description and dueDate if provided.
+app.put('/api/assignments/:id', authRequired, adminRequired, upload.single('file'), (req, res) => {
+  const { id } = req.params;
+  const assn = assignments.find(a => a.id == id);
+  if (!assn) return res.status(404).json({ error: 'Assignment not found' });
+  const { title, description, dueDate } = req.body;
+  if (title) assn.title = title;
+  if (description) assn.description = description;
+  if (dueDate) {
+    const parsed = new Date(dueDate);
+    if (!isNaN(parsed)) assn.dueDate = parsed.toISOString();
+  }
+  if (req.file) {
+    assn.pdfPath = req.file.path;
+  }
+  saveData();
+  res.json(assn);
+});
+
+// Update resource by ID. Accept optional new file and updated title.
+app.put('/api/resources/:id', authRequired, adminRequired, upload.single('file'), (req, res) => {
+  const { id } = req.params;
+  const resrc = resources.find(r => r.id == id);
+  if (!resrc) return res.status(404).json({ error: 'Resource not found' });
+  const { title } = req.body;
+  if (title) resrc.title = title;
+  if (req.file) {
+    resrc.filePath = req.file.path;
+  }
+  saveData();
+  res.json(resrc);
+});
+
+// Update exam by ID. Update title, description and date.
+app.put('/api/exams/:id', authRequired, adminRequired, (req, res) => {
+  const { id } = req.params;
+  const ex = exams.find(e => e.id == id);
+  if (!ex) return res.status(404).json({ error: 'Exam not found' });
+  const { title, description, date } = req.body;
+  if (title) ex.title = title;
+  if (description) ex.description = description;
+  if (date) {
+    const parsed = new Date(date);
+    if (!isNaN(parsed)) ex.date = parsed.toISOString();
+  }
+  saveData();
+  res.json(ex);
+});
+
+// -----------------------------------------------------------------------------
+// Deletion endpoints for announcements, assignments, resources and exams.
+// These allow administrators to remove posted items. Deleting an assignment
+// does not delete associated submissions; they will remain in storage but will
+// no longer be listed. All deletion routes require authentication and
+// admin privileges.
+
+// Delete announcement
+app.delete('/api/announcements/:id', authRequired, adminRequired, (req, res) => {
+  const { id } = req.params;
+  const idx = announcements.findIndex(a => a.id == id);
+  if (idx === -1) return res.status(404).json({ error: 'Announcement not found' });
+  announcements.splice(idx, 1);
+  saveData();
+  res.json({ message: 'Announcement deleted' });
+});
+
+// Delete assignment
+app.delete('/api/assignments/:id', authRequired, adminRequired, (req, res) => {
+  const { id } = req.params;
+  const idx = assignments.findIndex(a => a.id == id);
+  if (idx === -1) return res.status(404).json({ error: 'Assignment not found' });
+  assignments.splice(idx, 1);
+  // Note: existing submissions for this assignment are not removed but will no
+  // longer be reachable via assignment listings.
+  saveData();
+  res.json({ message: 'Assignment deleted' });
+});
+
+// Delete resource
+app.delete('/api/resources/:id', authRequired, adminRequired, (req, res) => {
+  const { id } = req.params;
+  const idx = resources.findIndex(r => r.id == id);
+  if (idx === -1) return res.status(404).json({ error: 'Resource not found' });
+  resources.splice(idx, 1);
+  saveData();
+  res.json({ message: 'Resource deleted' });
+});
+
+// Delete exam
+app.delete('/api/exams/:id', authRequired, adminRequired, (req, res) => {
+  const { id } = req.params;
+  const idx = exams.findIndex(e => e.id == id);
+  if (idx === -1) return res.status(404).json({ error: 'Exam not found' });
+  exams.splice(idx, 1);
+  saveData();
+  res.json({ message: 'Exam deleted' });
 });
 
 /**

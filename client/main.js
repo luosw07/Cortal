@@ -42,6 +42,97 @@ function fetchAuth(url, options = {}) {
   return fetch(url, Object.assign({}, options, { headers }));
 }
 
+/**
+ * Client-side grade band mapping consistent with server-side gradeBand. Takes a
+ * numeric score and returns an object with a label and colour code. This
+ * function mirrors the server’s definition for categories A+, A, A-, B, C, D,
+ * Failed.
+ *
+ * @param {number} score
+ */
+function gradeBandClient(score) {
+  const s = Number(score);
+  if (s >= 95) return { label: 'A+', color: '#34C759' };
+  if (s >= 90) return { label: 'A', color: '#30B158' };
+  if (s >= 85) return { label: 'A-', color: '#28A745' };
+  if (s >= 80) return { label: 'B', color: '#5AC8FA' };
+  if (s >= 70) return { label: 'C', color: '#FFCC00' };
+  if (s >= 60) return { label: 'D', color: '#FF9F0A' };
+  return { label: 'Failed', color: '#FF3B30' };
+}
+
+/**
+ * Render a horizontal gauge representing a score. The gauge fills proportionally
+ * to the numeric score (0–100) and displays the grade band label with the
+ * appropriate colour. Returns a DOM element.
+ *
+ * @param {number|null} score
+ */
+function renderGauge(score) {
+  const wrapper = document.createElement('div');
+  wrapper.style.display = 'flex';
+  wrapper.style.alignItems = 'center';
+  wrapper.style.gap = '0.5rem';
+  wrapper.style.marginBottom = '0.5rem';
+  if (score == null) {
+    const span = document.createElement('span');
+    span.textContent = 'No grades yet';
+    wrapper.appendChild(span);
+    return wrapper;
+  }
+  const info = gradeBandClient(score);
+  const bar = document.createElement('div');
+  bar.style.flex = '1';
+  bar.style.background = '#e5e5ea';
+  bar.style.height = '10px';
+  bar.style.borderRadius = '999px';
+  const fill = document.createElement('div');
+  fill.style.height = '10px';
+  fill.style.borderRadius = '999px';
+  fill.style.background = info.color;
+  fill.style.width = Math.min(Math.max(score, 0), 100) + '%';
+  bar.appendChild(fill);
+  const label = document.createElement('span');
+  label.textContent = `${info.label} (${Number(score).toFixed(2)})`;
+  label.style.color = info.color;
+  label.style.fontWeight = '600';
+  wrapper.appendChild(bar);
+  wrapper.appendChild(label);
+  return wrapper;
+}
+
+/**
+ * Load overall grade statistics for the current user and update the home page
+ * dashboard. Called after login/registration. Hides the card if no grades.
+ */
+async function loadMyOverall() {
+  const card = document.getElementById('homeOverall');
+  if (!card) return;
+  try {
+    const resp = await fetchAuth('/api/grades/overall');
+    const data = await resp.json();
+    card.innerHTML = '';
+    const title = document.createElement('h3');
+    title.textContent = 'My Overall Grade';
+    card.appendChild(title);
+    if (data.avg == null) {
+      const msg = document.createElement('p');
+      msg.textContent = 'No graded submissions yet.';
+      card.appendChild(msg);
+      card.style.display = 'block';
+      return;
+    }
+    card.appendChild(renderGauge(data.avg));
+    const details = document.createElement('p');
+    details.style.fontSize = '0.85rem';
+    details.textContent = `Graded assignments: ${data.count}`;
+    card.appendChild(details);
+    card.style.display = 'block';
+  } catch (e) {
+    console.error('Failed to load overall grade', e);
+  }
+}
+
 // Setup event listeners once DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
   // Restore user and token from localStorage if available
@@ -84,6 +175,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // index.html.
   if (window.pdfjsLib) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+  }
+
+  // Load overall grade dashboard if logged in
+  if (currentUser) {
+    loadMyOverall();
   }
 
   // New discussion thread submission
@@ -750,6 +846,8 @@ function initForLoggedInUser() {
   loadHomeThreads();
   loadHomeAssignments();
   loadNotifications();
+  // Load overall grade dashboard for the logged in user
+  loadMyOverall();
   // Scores page and private messages have been removed
 }
 
@@ -1062,6 +1160,10 @@ async function openThreadPage(threadId) {
       return;
     }
     const thread = await res.json();
+    // Track which comment is being replied to. When a reply button is clicked,
+    // these variables are updated and referenced when submitting the comment.
+    let replyToId = null;
+    let replyToName = '';
     // Hide other pages and set nav state
     showSection('thread-page-section');
     setActiveNav(null);
@@ -1143,6 +1245,12 @@ async function openThreadPage(threadId) {
     }
     threadCard.appendChild(body);
     container.appendChild(threadCard);
+    // Build a map of comments by id to resolve reply targets
+    const commentMap = {};
+    thread.comments.forEach(cm => {
+      commentMap[cm.id] = cm;
+    });
+
     // Comments section
     const commentsContainer = document.createElement('div');
     commentsContainer.className = 'comments-container';
@@ -1168,6 +1276,20 @@ async function openThreadPage(threadId) {
         }
         metaDiv.innerHTML = `${authHTML} • ${new Date(c.date).toLocaleString()}`;
         card.appendChild(metaDiv);
+        // If this comment is a reply, show who it replies to
+        if (c.replyTo) {
+          const parent = commentMap[c.replyTo];
+          const replyLabel = document.createElement('div');
+          replyLabel.className = 'reply-label';
+          replyLabel.style.fontSize = '0.8rem';
+          replyLabel.style.color = '#6e6e73';
+          if (parent) {
+            replyLabel.textContent = `↳ Reply to ${parent.authorName}`;
+          } else {
+            replyLabel.textContent = '↳ Reply';
+          }
+          card.appendChild(replyLabel);
+        }
         // Comment body with Markdown and LaTeX
         const bodyDiv = document.createElement('div');
         bodyDiv.innerHTML = window.marked.parse(c.content || '');
@@ -1205,6 +1327,27 @@ async function openThreadPage(threadId) {
           attWrap.appendChild(dlBtn);
           card.appendChild(attWrap);
         }
+        // Reply button: allow logged‑in, approved users to reply to a specific comment
+        if (currentUser && currentUser.approved !== false) {
+          const replyBtn = document.createElement('button');
+          replyBtn.textContent = 'Reply';
+          replyBtn.className = 'btn-blue';
+          replyBtn.style.marginTop = '0.5rem';
+          replyBtn.addEventListener('click', () => {
+            replyToId = c.id;
+            replyToName = c.authorName;
+            const indicator = document.getElementById('replyIndicator');
+            if (indicator) {
+              indicator.textContent = `Replying to ${replyToName}`;
+              indicator.style.display = 'block';
+            }
+            const ta = document.getElementById('commentTextarea');
+            if (ta) {
+              ta.focus();
+            }
+          });
+          card.appendChild(replyBtn);
+        }
         // Admin delete button aligned right in actions container
         if (currentUser && currentUser.role === 'admin') {
           const actions = document.createElement('div');
@@ -1231,16 +1374,28 @@ async function openThreadPage(threadId) {
     container.appendChild(commentsContainer);
     // Comment form if logged in and not pending
     if (currentUser && !(currentUser.role === 'pendingStudent' || currentUser.approved === false)) {
+      // Build comment posting form in a card. Include reply indicator and track replyToId.
       const form = document.createElement('div');
       form.className = 'comment-form assignment-detail-section';
+      // Reply indicator: displays which comment is being replied to
+      const replyIndicator = document.createElement('div');
+      replyIndicator.id = 'replyIndicator';
+      replyIndicator.style.display = 'none';
+      replyIndicator.style.fontStyle = 'italic';
+      replyIndicator.style.marginBottom = '0.25rem';
+      form.appendChild(replyIndicator);
+      // Comment textarea
       const textarea = document.createElement('textarea');
+      textarea.id = 'commentTextarea';
       textarea.placeholder = 'Add a comment...';
       textarea.rows = 3;
       textarea.style.width = '100%';
+      // Attachment input
       const fileInput = document.createElement('input');
       fileInput.type = 'file';
       fileInput.accept = 'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.*,image/*';
       fileInput.style.marginTop = '0.5rem';
+      // Submit button
       const submit = document.createElement('button');
       submit.textContent = 'Post Comment';
       submit.className = 'btn-blue';
@@ -1253,6 +1408,10 @@ async function openThreadPage(threadId) {
         formData.append('authorName', currentUser.name);
         formData.append('authorEmail', currentUser.email);
         formData.append('authorRole', currentUser.role);
+        // Include replyTo if set
+        if (typeof replyToId !== 'undefined' && replyToId) {
+          formData.append('replyTo', replyToId);
+        }
         if (fileInput.files.length) {
           formData.append('file', fileInput.files[0]);
         }
@@ -1261,8 +1420,14 @@ async function openThreadPage(threadId) {
           body: formData,
         });
         if (resp.ok) {
+          // Reset form and reply state
           textarea.value = '';
           fileInput.value = '';
+          if (typeof replyToId !== 'undefined') {
+            replyToId = null;
+            replyToName = '';
+          }
+          replyIndicator.style.display = 'none';
           openThreadPage(thread.id);
         } else {
           const msg = await resp.json();
@@ -1355,6 +1520,54 @@ async function openAssignmentPage(assn) {
   meta.className = 'meta';
   meta.textContent = `Due: ${new Date(assn.dueDate).toLocaleString()}`;
   container.appendChild(meta);
+
+  // Assignment dashboard: display submission and grade stats
+  try {
+    const statsResp = await fetchAuth(`/api/assignments/${assn.id}/stats`);
+    if (statsResp.ok) {
+      const stats = await statsResp.json();
+      const dashCard = document.createElement('div');
+      dashCard.className = 'card';
+      const h3 = document.createElement('h3');
+      h3.textContent = 'Assignment Dashboard';
+      dashCard.appendChild(h3);
+      // Submission rate
+      const rate = Math.round((stats.submitted / (stats.totalUsers || 1)) * 100);
+      const pRate = document.createElement('p');
+      pRate.style.fontSize = '0.85rem';
+      pRate.textContent = `Submitted: ${stats.submitted}/${stats.totalUsers} (${rate}%)`;
+      dashCard.appendChild(pRate);
+      // Average grade
+      if (stats.avg !== null && stats.avg !== undefined) {
+        dashCard.appendChild(renderGauge(stats.avg));
+      }
+      // Distribution bars
+      const dist = document.createElement('div');
+      dist.style.display = 'flex';
+      dist.style.flexDirection = 'column';
+      dist.style.gap = '4px';
+      const bandsOrder = ['A+', 'A', 'A-', 'B', 'C', 'D', 'Failed'];
+      bandsOrder.forEach(label => {
+        const row = document.createElement('div');
+        row.style.display = 'flex'; row.style.alignItems = 'center'; row.style.gap = '8px';
+        const lab = document.createElement('span'); lab.textContent = label; lab.style.width = '40px';
+        const barWrap = document.createElement('div'); barWrap.style.flex = '1'; barWrap.style.height = '6px'; barWrap.style.background = '#e5e5ea'; barWrap.style.borderRadius = '999px';
+        const fill = document.createElement('div'); fill.style.height = '6px'; fill.style.borderRadius = '999px'; fill.style.background = '#bbb';
+        const total = stats.submitted || 1;
+        const count = stats.bands[label] || 0;
+        fill.style.width = ((count / total) * 100) + '%';
+        barWrap.appendChild(fill);
+        const cnt = document.createElement('span'); cnt.textContent = count; cnt.style.fontSize = '0.75rem';
+        row.appendChild(lab); row.appendChild(barWrap); row.appendChild(cnt);
+        dist.appendChild(row);
+      });
+      dashCard.appendChild(dist);
+      dashCard.style.marginBottom = '1rem';
+      container.appendChild(dashCard);
+    }
+  } catch (err) {
+    console.error('Failed to load assignment stats', err);
+  }
   // Description parsed
   const descDiv = document.createElement('div');
   descDiv.innerHTML = window.marked.parse(assn.description || '');
@@ -2692,17 +2905,17 @@ async function openGradeModal(assignment) {
       gradeContainer.style.display = 'flex';
       gradeContainer.style.flexDirection = 'column';
       gradeContainer.style.gap = '0.25rem';
-      const badge = document.createElement('span');
-      badge.className = 'btn-green';
-      badge.style.pointerEvents = 'none';
-      badge.style.fontSize = '0.9rem';
-      badge.style.padding = '0.4rem 0.75rem';
-      badge.textContent = `Grade: ${sub.grade}`;
-      gradeContainer.appendChild(badge);
+      // Replace badge with a gauge representing the numeric grade
+      gradeContainer.appendChild(renderGauge(Number(sub.grade)));
       const commentsDiv = document.createElement('div');
       commentsDiv.style.fontSize = '0.85rem';
       commentsDiv.innerHTML = `<strong>Comments:</strong> ${sub.comments || '—'}`;
       gradeContainer.appendChild(commentsDiv);
+      // Row for download feedback and regrade buttons
+      const buttonsRow = document.createElement('div');
+      buttonsRow.style.display = 'flex';
+      buttonsRow.style.gap = '0.5rem';
+      buttonsRow.style.marginTop = '0.5rem';
       if (sub.feedbackPath) {
         const feedbackRel = sub.feedbackPath.replace(/.*uploads\\/, 'uploads/').replace(/\\/g, '/');
         const feedbackLink = document.createElement('a');
@@ -2711,17 +2924,17 @@ async function openGradeModal(assignment) {
         feedbackLink.target = '_blank';
         feedbackLink.className = 'btn-blue';
         feedbackLink.style.width = 'fit-content';
-        gradeContainer.appendChild(feedbackLink);
+        buttonsRow.appendChild(feedbackLink);
       }
-      div.appendChild(gradeContainer);
       const regradeBtn = document.createElement('button');
       regradeBtn.className = 'btn-yellow';
       regradeBtn.textContent = 'Regrade';
       regradeBtn.addEventListener('click', () => {
         openGradingInterface(assignment, sub);
       });
-      regradeBtn.style.marginTop = '0.5rem';
-      div.appendChild(regradeBtn);
+      buttonsRow.appendChild(regradeBtn);
+      gradeContainer.appendChild(buttonsRow);
+      div.appendChild(gradeContainer);
     } else {
       // Display a single button to start grading
       const gradeBtn = document.createElement('button');

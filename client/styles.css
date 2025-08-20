@@ -9,6 +9,15 @@ html, body {
   height: 100%;
 }
 
+/* Generic card style for containers such as course info and dashboards */
+.card {
+  background-color: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
 header.navbar {
   position: sticky;
   top: 0;
@@ -195,6 +204,8 @@ section.page {
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
 }
 
 .assignment-card .actions input[type="file"] {
@@ -501,18 +512,23 @@ section.page {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
   padding: 1rem;
   margin-bottom: 1rem;
+  /* Stack details and actions vertically on small cards */
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
 }
 .assignment-card .details {
   flex: 1;
 }
 .assignment-card .actions {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 0.5rem;
-  margin-left: 1rem;
+  margin-left: 0;
+  margin-top: 1rem;
+  justify-content: flex-end;
 }
 
 /* Buttons with different colours */
